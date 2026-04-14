@@ -1,31 +1,48 @@
-# HOPE
-
- 
 ## Members:
-* Miras Rakhmetolla 
-* Bizhan Kanat
+* Miras Rakhmetolla  
+* Bizhan Kanat  
 * Yernazar Altynbekov
-___
+
+# The Next Gen Web-Tank Combat
+**A KBTU Web Development Project | Django • Angular • Three.js • DRF • Maya**
+
+### The Vision
+Our team is building a full-scale multiplayer tank game that runs right in your browser. We aren't just making a website; we are combining **Autodesk MAYA** for 3D modeling, **Three.js** for the game engine, and the power of **Django** and **Angular** to manage the whole ecosystem.
+
+Imagine a world where you log in, customize your heavy war machine, choose your side (USSR or Germany), and jump into a 3D arena to dominate the leaderboard.
+
 ---
-## Project describetion
+
+### Front-End: The Command Center (Angular)
+We are using **Angular** to build the entire "Command Center" of the game. This is the UI where everything happens before the battle starts.
+
+When you open the app, you’ll see a sleek interface for **Registration and Login**. We’re implementing a secure system (**JWT**) so your progress, kills, and tank collection are always safe. Inside the **Garage**, we use Angular's dynamic features to display your tanks—you can scroll through your collection and pick your favorite machine.
+
+We also have a **Profile and Faction system**. Whether you want to represent the Red Army or the Axis, you can switch roles and see your stats update in real-time. Want to start a fight? The **Lobby and Map Selection** screen will find other players and get the coordinates ready for the **3D engine**.
+
 ---
 
-**HOPE** is one of the most ambitious projects our team has ever worked on.
+### Back-End: The Engine Room (Django & DRF)
+Under the hood, **Django REST Framework** is doing all the heavy lifting. We’ve designed a database that tracks everything:
 
-At its core, HOPE is an educational platform built on our UNIX-based system. Its goal is to make learning broader, deeper, and far more engaging than traditional platforms. The platform is designed to offer a wide range of courses — from the fundamentals of human philosophy to advanced aerospace development.
+* **Users & Stats:** Your ID, username, total kills, and global ranking.
+* **The Garage:** Every tank you own is an "instance" connected to your account.
+* **Tank Models:** This is where we store the "DNA" of the tanks—their names, speed, armor, and even the links to the 3D files (body and turret) we made in **MAYA**.
+* **Battlefields:** Every location has its own size, specific coordinates, and a list of players currently in the session.
 
-What makes HOPE unique is that it combines **education with competition**.
+To keep things fast, we’re using **Serializers** to send all this data to the front-end instantly. We also plan to explore **WebSockets** to make sure that when you shoot, the server knows about it immediately.
 
-We introduce an **open ladder system** where learners can track their progress and compare their achievements with others. To support this, we created a new evaluation model called **KGR (Knowledge Gaining Rating)**.
+---
 
-Unlike a simple score, **KGR** reflects not only how much information a learner absorbs, but also **how effectively they apply it**. To gain more points and climb higher on the ladder, users must complete challenges and make as few mistakes as possible during trials.
+### Tools of War
+* **Autodesk MAYA:** Used to craft the high-poly tank models, turrets, and terrain.
+* **Three.js:** The bridge that brings our 3D models to life on the web.
+* **Angular:** Our choice for a fast, responsive user interface and state management.
+* **Django & DRF:** The backbone that handles our API, security, and game logic.
 
-And if KGR were only a number, that still would not be enough.
+---
 
-That is why HOPE also includes an **achievement system**. The conditions for unlocking achievements are intentionally hidden, making the learning experience more exciting, rewarding, and game-like.
+### Why This Project?
+We want to prove that web development isn't just about forms and text—it's about creating immersive experiences. By the end of this project, we will have a fully synchronized system where a 3D battle in the browser is powered by a professional-grade **Django** backend.
 
-For learners who enjoy competition, HOPE creates a motivating environment where progress is visible and meaningful. At the same time, users who prefer a more personal learning journey can simply **turn off competitive mode** and focus entirely on self-development.
-
-### **In short, HOPE is more than just an educational platform.**
-
-It is a space where **knowledge, challenge, progress, and motivation** come together.
+**Ready to roll out? Let’s go.**
