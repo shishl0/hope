@@ -1,161 +1,377 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>2D Tank Test</title>
     <style>
-        body { margin: 0; padding: 20px; font-family: sans-serif; }
-        canvas { border: 1px solid black; background: #eee; }
-        #controls { margin-bottom: 20px; }
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: sans-serif;
+        }
+
+        canvas {
+            border: 1px solid black;
+            background: #eee;
+        }
+
+        #controls {
+            margin-bottom: 20px;
+        }
     </style>
 </head>
+
 <body>
     <div id="controls">
         <h3>2D WebSockets Mini-Game</h3>
-        <p>Use WASD to move. Click to shoot. Wait for another browser tab to join to see multiplayer.</p>
+        <p>Wait for another browser tab to join to see multiplayer.</p>
         <button id="connectBtn">Connect to server</button>
         Lobby info: <span id="lobbyStatus">Not connected</span>
+        <div style="margin-top: 10px; background: #ddd; padding: 10px;">
+            <strong>Key Bindings (click to change):</strong>
+            Up: <button id="bindUp">KeyW</button>
+            Down: <button id="bindDown">KeyS</button>
+            Left: <button id="bindLeft">KeyA</button>
+            Right: <button id="bindRight">KeyD</button>
+            Machine Gun: <button id="bindMG">KeyG</button>
+        </div>
     </div>
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div style="position: relative; width: 800px; height: 600px;">
+        <canvas id="gameCanvas" width="800" height="600"
+            style="position: absolute; top:0; left:0; border: 1px solid black; background: #eee; cursor: crosshair;"></canvas>
+        <div id="respawnUI"
+            style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 30px; font-weight: bold; color: red; display: none; text-shadow: 1px 1px 2px black;">
+            Respawning in <span id="respawnTimer">3.0</span>s
+        </div>
+    </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        const respawnUI = document.getElementById('respawnUI');
+        const respawnTimerText = document.getElementById('respawnTimer');
+
         let socket = null;
         let myId = Math.floor(Math.random() * 10000).toString();
-        let myPos = { x: 400, y: 300, color: 'blue' };
+        // Generate valid semi-bright random color
+        let myColor = `hsl(${Math.random() * 360}, 80%, 50%)`;
+        let myPos = { x: Math.random() * 700 + 50, y: Math.random() * 500 + 50, color: myColor };
         let players = {};
         let bullets = [];
+        let isDead = false;
+        let isSafe = false;
+        let respawnTimeLeft = 0;
+        let maxHp = 500;
+        let hp = 500;
+        let hpDamage = 100;
+
+        let lastShootTime = 0;
+        let shootInterval = 100; // ms between bullets for machine gun
+        let isMouseDown = false;
+        let mousePos = { x: 0, y: 0 };
+
+        // Key bindings
+        let bindings = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', mg: 'KeyG' };
+
+        function bindKey(id, action) {
+            const btn = document.getElementById(id);
+            btn.onclick = () => {
+                btn.innerText = "Press any key...";
+                const handler = (e) => {
+                    e.preventDefault();
+                    bindings[action] = e.code;
+                    btn.innerText = e.code;
+                    window.removeEventListener('keydown', handler);
+                };
+                window.addEventListener('keydown', handler);
+            };
+        }
+        bindKey('bindUp', 'up'); bindKey('bindDown', 'down');
+        bindKey('bindLeft', 'left'); bindKey('bindRight', 'right'); bindKey('bindMG', 'mg');
 
         document.getElementById('connectBtn').addEventListener('click', () => {
             if (socket) return;
             const lobbyId = "testlobby1";
             socket = new WebSocket(`ws://${window.location.host}/ws/game/${lobbyId}/`);
-            
-            socket.onopen = function(e) {
+
+            socket.onopen = function (e) {
                 document.getElementById('lobbyStatus').innerText = "Connected as " + myId;
-                // Announce presence
                 socket.send(JSON.stringify({
                     type: 'join',
                     id: myId,
                     x: myPos.x,
                     y: myPos.y,
-                    color: myPos.color
+                    color: myPos.color,
+                    isSafe: isSafe
                 }));
             };
 
-            socket.onmessage = function(event) {
+            socket.onmessage = function (event) {
                 const data = JSON.parse(event.data);
-                if (data.id === myId) return; // Ignore own messages
-                
-                if (data.type === 'join' || data.type === 'move') {
-                    players[data.id] = { x: data.x, y: data.y, color: data.color || 'red' };
+                if (data.id === myId) return;
+
+                if (data.type === 'join' || data.type === 'spawn_safe') {
+                    if (!players[data.id]) players[data.id] = { color: data.color || 'red', renderX: data.x, renderY: data.y, hp: 500 };
+                    players[data.id].x = data.x;
+                    players[data.id].y = data.y;
+                    players[data.id].renderX = data.x; // snap on spawn
+                    players[data.id].renderY = data.y;
+                    players[data.id].dead = false;
+                    if (data.color) players[data.id].color = data.color;
+                    if (data.hp !== undefined) players[data.id].hp = data.hp;
+                    players[data.id].isSafe = data.type === 'spawn_safe';
+                } else if (data.type === 'move') {
+                    if (!players[data.id]) players[data.id] = { color: data.color, renderX: data.x, renderY: data.y, hp: 500 };
+                    players[data.id].x = data.x; // target X
+                    players[data.id].y = data.y; // target Y
+                    players[data.id].dead = false;
+                    players[data.id].isSafe = false;
+                } else if (data.type === 'hp_update') {
+                    if (players[data.id]) players[data.id].hp = data.hp;
+                } else if (data.type === 'leave') {
+                    if (players[data.id]) delete players[data.id];
                 } else if (data.type === 'shoot') {
                     bullets.push({ x: data.x, y: data.y, vx: data.vx, vy: data.vy });
                 } else if (data.type === 'kill') {
-                    if (players[data.targetId]) delete players[data.targetId];
-                    if (data.targetId === myId) {
-                        alert("You were killed!");
-                        myPos.x = Math.random() * 800;
-                        myPos.y = Math.random() * 600;
+                    if (players[data.targetId]) {
+                        players[data.targetId].dead = true;
+                        players[data.targetId].hp = 0;
                     }
                 }
             };
 
-            socket.onclose = function(event) {
+            socket.onclose = () => {
                 document.getElementById('lobbyStatus').innerText = "Disconnected";
                 socket = null;
             };
         });
 
-        // Controls
-        const keys = { w: false, a: false, s: false, d: false };
-        window.addEventListener('keydown', e => { if (keys.hasOwnProperty(e.key)) keys[e.key] = true; });
-        window.addEventListener('keyup', e => { if (keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+        const keys = {};
+        window.addEventListener('keydown', e => { keys[e.code] = true; });
+        window.addEventListener('keyup', e => { keys[e.code] = false; });
 
-        canvas.addEventListener('mousedown', (e) => {
-            if (!socket) return;
+        canvas.addEventListener('mousedown', (e) => { isMouseDown = true; updateMouse(e); });
+        canvas.addEventListener('mouseup', () => { isMouseDown = false; });
+        canvas.addEventListener('mousemove', updateMouse);
+
+        function updateMouse(e) {
             const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            
-            // Calculate vector
-            const dx = mouseX - myPos.x;
-            const dy = mouseY - myPos.y;
-            const len = Math.sqrt(dx*dx + dy*dy);
-            const speed = 10;
-            
+            mousePos.x = e.clientX - rect.left;
+            mousePos.y = e.clientY - rect.top;
+        }
+
+        function fireBullet() {
+            if (!socket || isDead) return;
+            const now = Date.now();
+            if (now - lastShootTime < shootInterval) return;
+            lastShootTime = now;
+
+            isSafe = false; // shooting disables safe mode
+
+            const dx = mousePos.x - myPos.x;
+            const dy = mousePos.y - myPos.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len === 0) return;
+            const speed = 600; // pixels per second
+
             const bullet = {
                 type: 'shoot',
                 id: myId,
                 x: myPos.x,
                 y: myPos.y,
-                vx: (dx/len) * speed,
-                vy: (dy/len) * speed
+                vx: (dx / len) * speed,
+                vy: (dy / len) * speed
             };
-            
+
             socket.send(JSON.stringify(bullet));
-            bullets.push(bullet); // predict locally
-        });
+            bullets.push(bullet);
+        }
+
+        let lastFrameTime = Date.now();
 
         function update() {
-            if (keys.w) myPos.y -= 5;
-            if (keys.s) myPos.y += 5;
-            if (keys.a) myPos.x -= 5;
-            if (keys.d) myPos.x += 5;
+            const now = Date.now();
+            const dt = (now - lastFrameTime);
+            lastFrameTime = now;
 
-            // Broadcast movement
-            if (socket && socket.readyState === WebSocket.OPEN && (keys.w || keys.a || keys.s || keys.d)) {
-                socket.send(JSON.stringify({
-                    type: 'move',
-                    id: myId,
-                    x: myPos.x,
-                    y: myPos.y,
-                    color: myPos.color
-                }));
+            // Interpolate other players (Smooth micro-freezes)
+            const LERP_FACTOR = 0.25; // High = snappy, Low = smooth but delayed
+            for (let id in players) {
+                let p = players[id];
+                if (p.dead) continue;
+                if (p.renderX === undefined) p.renderX = p.x;
+                if (p.renderY === undefined) p.renderY = p.y;
+                // move visual position towards true position received via socket
+                p.renderX += (p.x - p.renderX) * LERP_FACTOR;
+                p.renderY += (p.y - p.renderY) * LERP_FACTOR;
             }
 
-            // Update bullets
+            if (!isDead) {
+                let moved = false;
+                const MOVE_SPEED = 300; // pixels per second
+                const dist = MOVE_SPEED * (dt / 1000);
+
+                if (keys[bindings.up]) { myPos.y -= dist; moved = true; }
+                if (keys[bindings.down]) { myPos.y += dist; moved = true; }
+                if (keys[bindings.left]) { myPos.x -= dist; moved = true; }
+                if (keys[bindings.right]) { myPos.x += dist; moved = true; }
+
+                // Bounds checking
+                myPos.x = Math.max(15, Math.min(800 - 15, myPos.x));
+                myPos.y = Math.max(15, Math.min(600 - 15, myPos.y));
+
+                if (moved && isSafe) {
+                    isSafe = false; // Move breaks safe mode
+                }
+
+                if (socket && socket.readyState === WebSocket.OPEN && moved) {
+                    socket.send(JSON.stringify({
+                        type: 'move',
+                        id: myId,
+                        x: myPos.x,
+                        y: myPos.y,
+                        color: myPos.color
+                    }));
+                }
+
+                // Machine Gun or single fire
+                if (isMouseDown || keys[bindings.mg]) {
+                    fireBullet();
+                }
+            } else {
+                // Handle respawn timer
+                respawnTimeLeft -= dt;
+                if (respawnTimeLeft <= 0) {
+                    // Respawn!
+                    isDead = false;
+                    isSafe = true;
+                    myPos.x = Math.random() * 750 + 25;
+                    myPos.y = Math.random() * 550 + 25;
+                    hp = maxHp;
+                    respawnUI.style.display = 'none';
+
+                    // Clear keys to avoid auto-walking glitch after respawn
+                    for (let k in keys) keys[k] = false;
+
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'spawn_safe',
+                            id: myId,
+                            x: myPos.x,
+                            y: myPos.y,
+                            color: myPos.color,
+                            hp: hp
+                        }));
+                    }
+                } else {
+                    respawnTimerText.innerText = (respawnTimeLeft / 1000).toFixed(1);
+                }
+            }
+
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
-                b.x += b.vx;
-                b.y += b.vy;
-                
-                // collision with me (rudimentary)
-                if (b.id !== myId) {
+                b.x += b.vx * (dt / 1000);
+                b.y += b.vy * (dt / 1000);
+
+
+                if (b.id !== myId && !isDead && !isSafe) {
                     const dist = Math.sqrt(Math.pow(b.x - myPos.x, 2) + Math.pow(b.y - myPos.y, 2));
                     if (dist < 20) {
-                        // Notify server of kill
-                        socket.send(JSON.stringify({ type: 'kill', targetId: myId }));
-                        alert("You were killed!");
-                        myPos.x = Math.random() * 800;
-                        myPos.y = Math.random() * 600;
+                        bullets.splice(i, 1);
+                        hp -= hpDamage;
+
+                        if (hp <= 0) {
+                            hp = 0;
+                            isDead = true;
+
+                            socket.send(JSON.stringify({ type: 'kill', targetId: myId }));
+
+                            respawnTimeLeft = 3000;
+                            respawnUI.style.display = 'block';
+                            myPos.x = -1000; // hide
+
+                            // Clear keys so holding movement while dying doesn't carry over
+                            for (let k in keys) keys[k] = false;
+                        } else {
+                            socket.send(JSON.stringify({ type: 'hp_update', id: myId, hp: hp }));
+                        }
+
+                        continue;
                     }
                 }
-                
-                if (b.x < 0 || b.x > 800 || b.y < 0 || b.y > 600) bullets.splice(i, 1);
+
+                if (b.x < 0 || b.x > 800 || b.y < 0 || b.y > 600) {
+                    bullets.splice(i, 1);
+                }
             }
+        }
+
+        function drawMaxHpBar(x, y, currentHp, maxHp) {
+            const width = 40;
+            const height = 6;
+            const barX = x - width / 2;
+            const barY = y - 30; // Above player
+
+            ctx.fillStyle = 'red';
+            ctx.fillRect(barX, barY, width, height);
+
+            ctx.fillStyle = '#00ff00';
+            ctx.fillRect(barX, barY, width * (currentHp / maxHp), height);
+
+            ctx.strokeStyle = 'black';
+            ctx.strokeRect(barX, barY, width, height);
         }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw me
-            ctx.fillStyle = myPos.color;
-            ctx.fillRect(myPos.x - 15, myPos.y - 15, 30, 30);
-            
-            // Draw others
+
+            if (!isDead) {
+                ctx.globalAlpha = isSafe ? 0.3 : 1.0;
+                ctx.fillStyle = myPos.color;
+                ctx.fillRect(myPos.x - 15, myPos.y - 15, 30, 30);
+                if (isSafe) {
+                    ctx.fillStyle = 'black';
+                    ctx.font = '12px Arial';
+                    ctx.fillText('SAFE', myPos.x - 15, myPos.y - 20);
+                } else {
+                    drawMaxHpBar(myPos.x, myPos.y, hp, maxHp);
+                }
+                ctx.globalAlpha = 1.0;
+            }
+
             for (let id in players) {
                 const p = players[id];
-                ctx.fillStyle = p.color;
-                ctx.fillRect(p.x - 15, p.y - 15, 30, 30);
+                if (p.dead) continue; // visually hide dead players till they spawn
+                ctx.globalAlpha = p.isSafe ? 0.3 : 1.0;
+                ctx.fillStyle = p.color || 'red';
+                ctx.fillRect(p.renderX - 15, p.renderY - 15, 30, 30);
+                if (p.isSafe) {
+                    ctx.fillStyle = 'black';
+                    ctx.font = '12px Arial';
+                    ctx.fillText('SAFE', p.renderX - 15, p.renderY - 20);
+                } else {
+                    drawMaxHpBar(p.renderX, p.renderY, p.hp !== undefined ? p.hp : 500, maxHp);
+                }
+                ctx.globalAlpha = 1.0;
             }
-            
-            // Draw bullets
+
+
             ctx.fillStyle = 'black';
             for (let b of bullets) {
                 ctx.beginPath();
                 ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
                 ctx.fill();
+            }
+
+            // Draw line from mouse to player to show crosshair direction
+            if (!isDead) {
+                ctx.globalAlpha = 0.2;
+                ctx.strokeStyle = myPos.color;
+                ctx.beginPath();
+                ctx.moveTo(myPos.x, myPos.y);
+                ctx.lineTo(mousePos.x, mousePos.y);
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
             }
         }
 
@@ -167,4 +383,5 @@
         loop();
     </script>
 </body>
+
 </html>
