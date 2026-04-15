@@ -1,0 +1,10 @@
+/                 -> WelcomeComponent
+/login            -> LoginComponent
+/register         -> RegisterComponent
+/profile          -> ProfileComponent
+/garage           -> GarageComponent
+/lobby            -> LobbyComponent
+/lobby/:id        -> LobbyRoomComponent
+/game/:id         -> GameComponent
+/leaderboard      -> LeaderboardComponent
+/not-found        -> NotFoundComponent

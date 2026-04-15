@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>2D Tank Test</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: sans-serif; }
+        canvas { border: 1px solid black; background: #eee; }
+        #controls { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <h3>2D WebSockets Mini-Game</h3>
+        <p>Use WASD to move. Click to shoot. Wait for another browser tab to join to see multiplayer.</p>
+        <button id="connectBtn">Connect to server</button>
+        Lobby info: <span id="lobbyStatus">Not connected</span>
+    </div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let socket = null;
+        let myId = Math.floor(Math.random() * 10000).toString();
+        let myPos = { x: 400, y: 300, color: 'blue' };
+        let players = {};
+        let bullets = [];
+
+        document.getElementById('connectBtn').addEventListener('click', () => {
+            if (socket) return;
+            const lobbyId = "testlobby1";
+            socket = new WebSocket(`ws://${window.location.host}/ws/game/${lobbyId}/`);
+            
+            socket.onopen = function(e) {
+                document.getElementById('lobbyStatus').innerText = "Connected as " + myId;
+                // Announce presence
+                socket.send(JSON.stringify({
+                    type: 'join',
+                    id: myId,
+                    x: myPos.x,
+                    y: myPos.y,
+                    color: myPos.color
+                }));
+            };
+
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.id === myId) return; // Ignore own messages
+                
+                if (data.type === 'join' || data.type === 'move') {
+                    players[data.id] = { x: data.x, y: data.y, color: data.color || 'red' };
+                } else if (data.type === 'shoot') {
+                    bullets.push({ x: data.x, y: data.y, vx: data.vx, vy: data.vy });
+                } else if (data.type === 'kill') {
+                    if (players[data.targetId]) delete players[data.targetId];
+                    if (data.targetId === myId) {
+                        alert("You were killed!");
+                        myPos.x = Math.random() * 800;
+                        myPos.y = Math.random() * 600;
+                    }
+                }
+            };
+
+            socket.onclose = function(event) {
+                document.getElementById('lobbyStatus').innerText = "Disconnected";
+                socket = null;
+            };
+        });
+
+        // Controls
+        const keys = { w: false, a: false, s: false, d: false };
+        window.addEventListener('keydown', e => { if (keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+        window.addEventListener('keyup', e => { if (keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (!socket) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // Calculate vector
+            const dx = mouseX - myPos.x;
+            const dy = mouseY - myPos.y;
+            const len = Math.sqrt(dx*dx + dy*dy);
+            const speed = 10;
+            
+            const bullet = {
+                type: 'shoot',
+                id: myId,
+                x: myPos.x,
+                y: myPos.y,
+                vx: (dx/len) * speed,
+                vy: (dy/len) * speed
+            };
+            
+            socket.send(JSON.stringify(bullet));
+            bullets.push(bullet); // predict locally
+        });
+
+        function update() {
+            if (keys.w) myPos.y -= 5;
+            if (keys.s) myPos.y += 5;
+            if (keys.a) myPos.x -= 5;
+            if (keys.d) myPos.x += 5;
+
+            // Broadcast movement
+            if (socket && socket.readyState === WebSocket.OPEN && (keys.w || keys.a || keys.s || keys.d)) {
+                socket.send(JSON.stringify({
+                    type: 'move',
+                    id: myId,
+                    x: myPos.x,
+                    y: myPos.y,
+                    color: myPos.color
+                }));
+            }
+
+            // Update bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.x += b.vx;
+                b.y += b.vy;
+                
+                // collision with me (rudimentary)
+                if (b.id !== myId) {
+                    const dist = Math.sqrt(Math.pow(b.x - myPos.x, 2) + Math.pow(b.y - myPos.y, 2));
+                    if (dist < 20) {
+                        // Notify server of kill
+                        socket.send(JSON.stringify({ type: 'kill', targetId: myId }));
+                        alert("You were killed!");
+                        myPos.x = Math.random() * 800;
+                        myPos.y = Math.random() * 600;
+                    }
+                }
+                
+                if (b.x < 0 || b.x > 800 || b.y < 0 || b.y > 600) bullets.splice(i, 1);
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw me
+            ctx.fillStyle = myPos.color;
+            ctx.fillRect(myPos.x - 15, myPos.y - 15, 30, 30);
+            
+            // Draw others
+            for (let id in players) {
+                const p = players[id];
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x - 15, p.y - 15, 30, 30);
+            }
+            
+            // Draw bullets
+            ctx.fillStyle = 'black';
+            for (let b of bullets) {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
