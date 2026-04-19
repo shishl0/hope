@@ -72,12 +72,30 @@ def active_lobbies(request):
     return Response(serializer.data)
 
 
-@api_view(['POST'])
+def get_player_state_response():
+    return {
+        'position': {
+            'x': PLAYER_STATE['position'][0],
+            'y': PLAYER_STATE['position'][1],
+            'z': PLAYER_STATE['position'][2],
+        },
+        'rotation': {
+            'x': PLAYER_STATE['rotation'][0],
+            'y': PLAYER_STATE['rotation'][1],
+            'z': PLAYER_STATE['rotation'][2],
+        },
+    }
+
+
+@api_view(['GET', 'POST'])
 def object_move(request):
+    if request.method == 'GET':
+        return Response(get_player_state_response())
+
     forward = request.data.get('forward', False)
     backward = request.data.get('backward', False)
-    rotate_left = request.data.get('rotateleft', False)
-    rotate_right = request.data.get('rotateright', False)
+    rotate_left = request.data.get('rotateLeft', request.data.get('rotateleft', False))
+    rotate_right = request.data.get('rotateRight', request.data.get('rotateright', False))
 
     if rotate_left:
         PLAYER_STATE['rotation'][1] -= ROTATE_SPEED
@@ -94,4 +112,4 @@ def object_move(request):
         PLAYER_STATE['position'][0] -= dir_x * MOVE_SPEED
         PLAYER_STATE['position'][2] -= dir_z * MOVE_SPEED
 
-    return Response(PLAYER_STATE)
+    return Response(get_player_state_response())

@@ -9,16 +9,16 @@ import { PlayerStateDto } from './player-state-dto';
 })
 export class GameNetworkHandler {
 
-  private readonly serverUrl = 'http://127.0.0.1:8000/object/move';
+  private readonly serverUrl = 'http://127.0.0.1:8001/api/object/move/';
 
   constructor(private http: HttpClient) {}
 
-  sendPlayerInput(input: PlayerInput): Observable<void> {
-    return this.http.post<void>(`${this.serverUrl}/input`, input);
+  sendPlayerInput(input: PlayerInput): Observable<PlayerStateDto> {
+    return this.http.post<PlayerStateDto>(this.serverUrl, input);
   }
 
   getPlayerState(): Observable<PlayerStateDto> {
-    return this.http.get<PlayerStateDto>(`${this.serverUrl}/state`);
+    return this.http.get<PlayerStateDto>(this.serverUrl);
   }
 
 }

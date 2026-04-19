@@ -1,10 +1,17 @@
 import { inject, Injectable } from '@angular/core';
 import * as THREE from 'three';
+import { Subscription } from 'rxjs';
 
 import { CameraService } from './camera';
 import { RendererService } from './renderer';
 import { LightService } from './light';
 
+import { InputHandler } from '../input/input-handler';
+import { PlayerInput } from '../input/player-input';
+import { GameNetworkHandler } from '../game-network/game-network-handler';
+import { PlayerStateDto } from '../game-network/player-state-dto';
+
+import { CubeMesh } from '../meshes/cube.mesh';
 
 @Injectable({
   providedIn: 'root',
@@ -15,6 +22,16 @@ export class SceneService {
   private animationId!: number;
   private canvas?: HTMLCanvasElement;
   private resizeObserver?: ResizeObserver;
+  private inputSubscription?: Subscription;
+  private cube?: CubeMesh;
+  private requestInFlight = false;
+  private inputState: PlayerInput = {
+    forward: false,
+    backward: false,
+    rotateLeft: false,
+    rotateRight: false,
+    timestamp: Date.now(),
+  };
 
   private CameraService = inject(CameraService);
   private RendererService = inject(RendererService);
@@ -22,6 +39,9 @@ export class SceneService {
 
   private is_greed_helpor_work: boolean = true;
   private readonly handleWindowResize = () => this.onWindowResize();
+
+  private readonly InputHandler = inject(InputHandler);
+  private readonly GameNetworkHandler = inject(GameNetworkHandler);
 
   private initWebGLContext(canvas: HTMLCanvasElement): void {
   // Here you would set up your WebGL context, load assets, etc.
@@ -59,15 +79,21 @@ export class SceneService {
 
     
     // Example: Add a simple cube to the scene
-    const geometry = new THREE.BoxGeometry();
-    const materilal = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-    const cube = new THREE.Mesh(geometry, materilal);
+    this.cube = new CubeMesh();
+    this.cube.addtoScene(this.scene);
 
-    this.scene.add(cube);
+    // input handling example
+    this.InputHandler.startListening();
+    this.inputSubscription = this.InputHandler.inputState$.subscribe(inputState => {
+      this.inputState = inputState;
+    });
 
-    //this.animate(cube);
+    this.GameNetworkHandler.getPlayerState().subscribe({
+      next: state => this.applyServerState(state),
+      error: error => console.error('Could not load player state:', error),
+    });
 
-    this.render();
+    this.animate();
 
     window.addEventListener('resize', this.handleWindowResize);
     this.resizeObserver = new ResizeObserver(() => this.onWindowResize());
@@ -81,12 +107,10 @@ export class SceneService {
     }
   }
 
-  private animate(mesh: THREE.Mesh): void {
+  private animate(): void {
 
-    const loop = () => {
-      // Update your scene, camera, etc. here
-      mesh.rotateX(0.01);
-      mesh.rotateY(0.01);
+    const loop = (frameTime: number) => {
+      this.syncCubeWithBackend();
       this.resizeCanvasIfNeeded();
 
       // Render the scene
@@ -97,7 +121,7 @@ export class SceneService {
       this.animationId = requestAnimationFrame(loop);
     }
 
-    loop();
+    this.animationId = requestAnimationFrame(loop);
 
   }
 
@@ -106,6 +130,9 @@ export class SceneService {
     cancelAnimationFrame(this.animationId);
     window.removeEventListener('resize', this.handleWindowResize);
     this.resizeObserver?.disconnect();
+    this.inputSubscription?.unsubscribe();
+    this.InputHandler.stopListening();
+    this.cube?.dispose();
     console.log('Stopping scene and cleaning up resources.');
   }
 
@@ -123,6 +150,45 @@ export class SceneService {
         this.CameraService.onResize(width / height);
       }
     }
+  }
+
+  private syncCubeWithBackend(): void {
+    if (!this.cube || this.requestInFlight || !this.hasMovementInput()) {
+      return;
+    }
+
+    this.requestInFlight = true;
+
+    this.GameNetworkHandler.sendPlayerInput(this.inputState).subscribe({
+      next: state => this.applyServerState(state),
+      error: error => {
+        console.error('Could not sync player input:', error);
+        this.requestInFlight = false;
+      },
+      complete: () => {
+        this.requestInFlight = false;
+      },
+    });
+  }
+
+  private applyServerState(state: PlayerStateDto): void {
+    if (!this.cube) {
+      return;
+    }
+
+    const mesh = this.cube.mash;
+    mesh.position.set(state.position.x, state.position.y, state.position.z);
+    mesh.rotation.set(state.rotation.x, state.rotation.y, state.rotation.z);
+    this.CameraService.follow(mesh.position);
+  }
+
+  private hasMovementInput(): boolean {
+    return (
+      this.inputState.forward ||
+      this.inputState.backward ||
+      this.inputState.rotateLeft ||
+      this.inputState.rotateRight
+    );
   }
   
 }

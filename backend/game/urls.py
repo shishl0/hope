@@ -23,5 +23,6 @@ urlpatterns = [
     path('lobbies/active/', active_lobbies, name='active-lobbies'),
 
     # Object movement endpoint
-    path('object/move/state', object_move, name='object-move'),
+    path('object/move/', object_move, name='object-move'),
+    path('object/move/state', object_move, name='object-move-state'),
 ]
