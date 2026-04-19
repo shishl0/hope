@@ -1,10 +1,19 @@
 from django.shortcuts import render
+import math
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Tank, PlayerProfile, Arena, Lobby, LobbyPlayer
 from .serializers import TankSerializer, ArenaSerializer, PlayerProfileSerializer, LobbyStatusSerializer
+
+PLAYER_STATE = {
+    'position': [0, 0, 0],
+    'rotation': [0, 0, 0],
+}
+
+MOVE_SPEED = 0.5
+ROTATE_SPEED = 0.1
 
 # 0. Test Game View
 def test_game_view(request):
@@ -61,3 +70,28 @@ def active_lobbies(request):
         })
     serializer = LobbyStatusSerializer(data, many=True)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+def object_move(request):
+    forward = request.data.get('forward', False)
+    backward = request.data.get('backward', False)
+    rotate_left = request.data.get('rotateleft', False)
+    rotate_right = request.data.get('rotateright', False)
+
+    if rotate_left:
+        PLAYER_STATE['rotation'][1] -= ROTATE_SPEED
+    if rotate_right:
+        PLAYER_STATE['rotation'][1] += ROTATE_SPEED
+
+    dir_x = math.sin(PLAYER_STATE['rotation'][1])
+    dir_z = math.cos(PLAYER_STATE['rotation'][1])
+
+    if forward:
+        PLAYER_STATE['position'][0] += dir_x * MOVE_SPEED
+        PLAYER_STATE['position'][2] += dir_z * MOVE_SPEED
+    if backward:
+        PLAYER_STATE['position'][0] -= dir_x * MOVE_SPEED
+        PLAYER_STATE['position'][2] -= dir_z * MOVE_SPEED
+
+    return Response(PLAYER_STATE)

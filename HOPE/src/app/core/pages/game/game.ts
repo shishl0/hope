@@ -4,7 +4,7 @@ import { SceneService } from '../../game3d/scene';
 @Component({
   selector: 'app-game',
   templateUrl: './game.html',
-  styles: [`./game.css`],
+  styleUrl: './game.css',
 })
 export class GameComponent implements AfterViewInit, OnDestroy {
 
