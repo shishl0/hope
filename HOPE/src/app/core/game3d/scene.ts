@@ -7,7 +7,7 @@ import { RendererService } from './renderer';
 import { LightService } from './light';
 
 import { InputHandler } from '../input/input-handler';
-import { PlayerInput } from '../input/player-input';
+import { ProtoTankInput } from '../input/player-input';
 import { GameNetworkHandler } from '../game-network/game-network-handler';
 
 import { CubeMesh } from '../meshes/cube.mesh';
@@ -27,11 +27,11 @@ export class SceneService {
   private inputSubscription?: Subscription;
   private sceneObjects: CollidableMesh[] = [];
   private requestInFlight = false;
-  private inputState: PlayerInput = {
+  private protoTankInputState: ProtoTankInput = {
     forward: false,
     backward: false,
-    rotateLeft: false,
-    rotateRight: false,
+    hullRotateLeft: false,
+    hullRotateRight: false,
     turretLeft: false,
     turretRight: false,
     timestamp: Date.now(),
@@ -98,8 +98,8 @@ export class SceneService {
 
     // input handling example
     this.InputHandler.startListening();
-    this.inputSubscription = this.InputHandler.inputState$.subscribe(inputState => {
-      this.inputState = inputState;
+    this.inputSubscription = this.InputHandler.getProtoTankInputObservable().subscribe(inputState => {
+      this.protoTankInputState = inputState;
     });
 
     this.animate(tank, obstacles);
@@ -118,9 +118,8 @@ export class SceneService {
 
   private animate(tank: ProtoTankMesh, obstacles: CubeMesh[]): void {
 
-    const loop = (frameTime: number) => {
-      this.updateTurret(tank);
-      this.syncMovementWithBackend(tank, obstacles);
+    const loop = () => {
+      this.syncProtoTankMovementWithBackend(tank, obstacles);
       this.resizeCanvasIfNeeded();
 
       // Render the scene
@@ -163,24 +162,31 @@ export class SceneService {
     }
   }
 
-  private syncMovementWithBackend(tank: ProtoTankMesh, obstacles: CubeMesh[]): void {
-    if (this.requestInFlight || !this.hasHullMovementInput()) {
+  private syncProtoTankMovementWithBackend(tank: ProtoTankMesh, obstacles: CubeMesh[]): void {
+    if (this.requestInFlight || !this.hasProtoTankInput()) {
       return;
     }
 
     this.requestInFlight = true;
 
-    this.GameNetworkHandler.sendPlayerInput({
-      ...this.inputState,
-      player: tank.toCollisionDto(),
+    this.GameNetworkHandler.sendProtoTankMoveInput({
+      forward: this.protoTankInputState.forward,
+      backward: this.protoTankInputState.backward,
+      hullRotateLeft: this.protoTankInputState.hullRotateLeft,
+      hullRotateRight: this.protoTankInputState.hullRotateRight,
+      turretLeft: this.protoTankInputState.turretLeft,
+      turretRight: this.protoTankInputState.turretRight,
+      tank: tank.toCollisionDto(),
+      turretRotation: tank.getTurretRotationDto(),
+      cannonRotation: tank.getCannonRotationDto(),
       obstacles: obstacles.map(obstacle => obstacle.toCollisionDto()),
     }).subscribe({
       next: state => {
-        tank.applyMoveResponse(state);
-        this.CameraService.follow(tank.mash.position);
+        tank.applyProtoTankMoveResponse(state);
+        this.CameraService.followTurretPivot(tank.getTurretWorldPosition(), tank.getTurretWorldYaw());
       },
       error: error => {
-        console.error('Could not sync player input:', error);
+        console.error('Could not sync proto tank input:', error);
         this.requestInFlight = false;
       },
       complete: () => {
@@ -189,22 +195,14 @@ export class SceneService {
     });
   }
 
-  private updateTurret(tank: ProtoTankMesh): void {
-    const turretDirection =
-      (this.inputState.turretLeft ? 1 : 0) -
-      (this.inputState.turretRight ? 1 : 0);
-
-    if (turretDirection !== 0) {
-      tank.rotateTurret(turretDirection);
-    }
-  }
-
-  private hasHullMovementInput(): boolean {
+  private hasProtoTankInput(): boolean {
     return (
-      this.inputState.forward ||
-      this.inputState.backward ||
-      this.inputState.rotateLeft ||
-      this.inputState.rotateRight
+      this.protoTankInputState.forward ||
+      this.protoTankInputState.backward ||
+      this.protoTankInputState.hullRotateLeft ||
+      this.protoTankInputState.hullRotateRight ||
+      this.protoTankInputState.turretLeft ||
+      this.protoTankInputState.turretRight
     );
   }
   

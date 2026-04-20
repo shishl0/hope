@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { PlayerInput } from './player-input';
+import { PlayerInput, ProtoTankInput } from './player-input';
 import { BehaviorSubject } from 'rxjs';
 
 @Injectable({
@@ -19,6 +19,9 @@ export class InputHandler {
 
   private inputStateSubject = new BehaviorSubject<PlayerInput>({ ...this.inputState });
   inputState$ = this.inputStateSubject.asObservable();
+
+  private protoTankInputStateSubject = new BehaviorSubject<ProtoTankInput>(this.createProtoTankInput());
+  protoTankInputState$ = this.protoTankInputStateSubject.asObservable();
 
   startListening(): void {
     window.addEventListener('keydown', this.handleKeyDown);
@@ -75,6 +78,7 @@ export class InputHandler {
     if (change) {
       this.inputState.timestamp = Date.now();
       this.inputStateSubject.next({ ...this.inputState });
+      this.protoTankInputStateSubject.next(this.createProtoTankInput());
     }
 
   }
@@ -124,6 +128,7 @@ export class InputHandler {
     if (change) {
       this.inputState.timestamp = Date.now();
       this.inputStateSubject.next({ ...this.inputState });
+      this.protoTankInputStateSubject.next(this.createProtoTankInput());
     }
 
   }
@@ -134,6 +139,26 @@ export class InputHandler {
 
   getInputObservable() {
     return this.inputState$;
+  }
+
+  getProtoTankSnapshot(): ProtoTankInput {
+    return this.createProtoTankInput();
+  }
+
+  getProtoTankInputObservable() {
+    return this.protoTankInputState$;
+  }
+
+  private createProtoTankInput(): ProtoTankInput {
+    return {
+      forward: this.inputState.forward,
+      backward: this.inputState.backward,
+      hullRotateLeft: this.inputState.rotateLeft,
+      hullRotateRight: this.inputState.rotateRight,
+      turretLeft: this.inputState.turretLeft,
+      turretRight: this.inputState.turretRight,
+      timestamp: this.inputState.timestamp,
+    };
   }
 
 }

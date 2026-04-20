@@ -22,6 +22,11 @@ CUBE_WORLD_HALF_SIZE = 50
 CUBE_MOVE_SPEED = 0.1
 CUBE_ROTATE_SPEED = 0.1
 
+PROTO_TANK_WORLD_HALF_SIZE = 50
+PROTO_TANK_MOVE_SPEED = 0.06
+PROTO_TANK_ROTATE_SPEED = 0.05
+PROTO_TANK_TURRET_ROTATE_SPEED = 0.02
+
 def normalize_angle(angle):
     """Normalize angle to [-pi, pi]"""
     while angle > math.pi:
@@ -96,6 +101,58 @@ def calculate_cube_move(data):
     return {
         'position': vector_to_dto(next_player['position']),
         'rotation': vector_to_dto(next_player['rotation']),
+        'collided': collided,
+    }
+
+
+def calculate_proto_tank_move(data):
+    tank = game_object_from_dto(data.get('tank', {}), 'proto-tank')
+    turret_rotation = vector_from_dto(data.get('turretRotation'), [0, 0, 0])
+    cannon_rotation = vector_from_dto(data.get('cannonRotation'), [math.pi / 2, 0, 0])
+    obstacles = {
+        obstacle.get('id', f'obstacle-{index}'): game_object_from_dto(obstacle, f'obstacle-{index}')
+        for index, obstacle in enumerate(data.get('obstacles', []))
+    }
+
+    next_tank = deepcopy(tank)
+
+    if data.get('hullRotateLeft', False):
+        next_tank['rotation'][1] += PROTO_TANK_ROTATE_SPEED
+    if data.get('hullRotateRight', False):
+        next_tank['rotation'][1] -= PROTO_TANK_ROTATE_SPEED
+
+    next_tank['rotation'][1] = normalize_angle(next_tank['rotation'][1])
+
+    move_direction = int(data.get('forward', False)) - int(data.get('backward', False))
+    if move_direction != 0:
+        dir_x = math.sin(next_tank['rotation'][1])
+        dir_z = math.cos(next_tank['rotation'][1])
+        distance = move_direction * PROTO_TANK_MOVE_SPEED
+
+        next_tank['position'][0] += dir_x * distance
+        next_tank['position'][2] += dir_z * distance
+        next_tank['position'] = clamp_to_world(
+            next_tank['position'],
+            PROTO_TANK_WORLD_HALF_SIZE,
+            next_tank['size'],
+        )
+
+    if data.get('turretLeft', False):
+        turret_rotation[1] += PROTO_TANK_TURRET_ROTATE_SPEED
+    if data.get('turretRight', False):
+        turret_rotation[1] -= PROTO_TANK_TURRET_ROTATE_SPEED
+
+    turret_rotation[1] = normalize_angle(turret_rotation[1])
+
+    collided = object_collides(next_tank, obstacles)
+    if collided:
+        next_tank['position'] = tank['position']
+
+    return {
+        'position': vector_to_dto(next_tank['position']),
+        'rotation': vector_to_dto(next_tank['rotation']),
+        'turretRotation': vector_to_dto(turret_rotation),
+        'cannonRotation': vector_to_dto(cannon_rotation),
         'collided': collided,
     }
 

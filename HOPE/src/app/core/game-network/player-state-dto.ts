@@ -25,3 +25,24 @@ export interface MoveResponseDto {
     rotation: Vector3Dto;
     collided: boolean;
 }
+
+export interface ProtoTankMoveRequestDto {
+    forward: boolean;
+    backward: boolean;
+    hullRotateLeft: boolean;
+    hullRotateRight: boolean;
+    turretLeft: boolean;
+    turretRight: boolean;
+    tank: CollisionObjectDto;
+    turretRotation: Vector3Dto;
+    cannonRotation: Vector3Dto;
+    obstacles: CollisionObjectDto[];
+}
+
+export interface ProtoTankMoveResponseDto {
+    position: Vector3Dto;
+    rotation: Vector3Dto;
+    turretRotation: Vector3Dto;
+    cannonRotation: Vector3Dto;
+    collided: boolean;
+}

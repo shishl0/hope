@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CollisionObjectDto, MoveResponseDto, Vector3Dto } from '../game-network/player-state-dto';
+import { CollisionObjectDto, ProtoTankMoveResponseDto, Vector3Dto } from '../game-network/player-state-dto';
 
 export class ProtoTankMesh {
     readonly id: string;
@@ -50,13 +50,11 @@ export class ProtoTankMesh {
         scene.remove(this.mash);
     }
 
-    rotateTurret(direction: number, amount = 0.04): void {
-        this.turret.rotation.y += direction * amount;
-    }
-
-    applyMoveResponse(state: MoveResponseDto): void {
+    applyProtoTankMoveResponse(state: ProtoTankMoveResponseDto): void {
         this.mash.position.set(state.position.x, state.position.y, state.position.z);
         this.mash.rotation.set(state.rotation.x, state.rotation.y, state.rotation.z);
+        this.turret.rotation.set(state.turretRotation.x, state.turretRotation.y, state.turretRotation.z);
+        this.cannon.rotation.set(state.cannonRotation.x, state.cannonRotation.y, state.cannonRotation.z);
     }
 
     toCollisionDto(): CollisionObjectDto {
@@ -66,6 +64,24 @@ export class ProtoTankMesh {
             rotation: this.vectorToDto(this.mash.rotation),
             size: this.vectorToDto(this.size),
         };
+    }
+
+    getTurretRotationDto(): Vector3Dto {
+        return this.vectorToDto(this.turret.rotation);
+    }
+
+    getCannonRotationDto(): Vector3Dto {
+        return this.vectorToDto(this.cannon.rotation);
+    }
+
+    getTurretWorldPosition(): THREE.Vector3 {
+        const turretWorldPosition = new THREE.Vector3();
+        this.turret.getWorldPosition(turretWorldPosition);
+        return turretWorldPosition;
+    }
+
+    getTurretWorldYaw(): number {
+        return this.mash.rotation.y + this.turret.rotation.y;
     }
 
     dispose(): void {

@@ -7,3 +7,13 @@ export interface PlayerInput {
     turretRight: boolean;
     timestamp: number;
 }
+
+export interface ProtoTankInput {
+    forward: boolean;
+    backward: boolean;
+    hullRotateLeft: boolean;
+    hullRotateRight: boolean;
+    turretLeft: boolean;
+    turretRight: boolean;
+    timestamp: number;
+}

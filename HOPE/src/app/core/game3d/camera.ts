@@ -8,6 +8,8 @@ export class CameraService {
 
   private camera!: THREE.PerspectiveCamera;
   private followOffset: THREE.Vector3 = new THREE.Vector3(0, 5, -10);
+  private turretFollowHeight = 5;
+  private turretFollowDistance = 10;
   private lerpAlpha: number = 0.1;
 
   init(aspect: number): THREE.PerspectiveCamera {
@@ -46,6 +48,25 @@ export class CameraService {
     // Optionally, you can also make the camera look at the target
     this.camera.lookAt(targetPosition);
 
+  }
+
+  followTurretPivot(turretPosition: THREE.Vector3, turretYaw: number): void {
+    if (!this.camera) {
+      console.warn('Camera not initialized yet. Call init() before following a turret.');
+      return;
+    }
+
+    const backwardFromTurret = new THREE.Vector3(
+      -Math.sin(turretYaw) * this.turretFollowDistance,
+      this.turretFollowHeight,
+      -Math.cos(turretYaw) * this.turretFollowDistance,
+    );
+    const desiredPosition = new THREE.Vector3().addVectors(turretPosition, backwardFromTurret);
+    const lookTarget = turretPosition.clone();
+    lookTarget.y += 0.4;
+
+    this.camera.position.lerp(desiredPosition, this.lerpAlpha);
+    this.camera.lookAt(lookTarget);
   }
 
   onResize ( aspect: number ): void {

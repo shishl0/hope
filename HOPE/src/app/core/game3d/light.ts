@@ -58,17 +58,21 @@ export class LightService {
 
   createSunLight(scene: THREE.Scene): void {
 
-    this.sunLight = this.createDirectionalLight(0xffffff, 2, new THREE.Vector3(50, 100, 50));
+    scene.add(this.createHemisphereLight(0xbfdcff, 0x3f493d, 1.4));
+    scene.add(this.createAmbientLight(0xffffff, 0.35));
+
+    this.sunLight = this.createDirectionalLight(0xffffff, 2.4, new THREE.Vector3(35, 70, 45));
+    this.sunLight.target.position.set(0, 0, 0);
 
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width = 1024;
-    this.sunLight.shadow.mapSize.height = 1024;
+    this.sunLight.shadow.mapSize.width = 2048;
+    this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near = 0.5;
-    this.sunLight.shadow.camera.far = 500;
-    this.sunLight.shadow.camera.left = -100;
-    this.sunLight.shadow.camera.right = 100;
-    this.sunLight.shadow.camera.top = 100;
-    this.sunLight.shadow.camera.bottom = -100;
+    this.sunLight.shadow.camera.far = 250;
+    this.sunLight.shadow.camera.left = -60;
+    this.sunLight.shadow.camera.right = 60;
+    this.sunLight.shadow.camera.top = 60;
+    this.sunLight.shadow.camera.bottom = -60;
 
     scene.add(this.sunLight);
     scene.add(this.sunLight.target);

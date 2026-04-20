@@ -4,7 +4,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
-from .views import TankViewSet, ArenaList, player_profile_detail, active_lobbies, object_move
+from .views import TankViewSet, ArenaList, player_profile_detail, active_lobbies, object_move, proto_tank_move
 
 router = DefaultRouter()
 router.register(r'tanks', TankViewSet)
@@ -25,4 +25,5 @@ urlpatterns = [
     # Object movement endpoint
     path('object/move/', object_move, name='object-move'),
     path('object/move/state', object_move, name='object-move-state'),
+    path('proto-tank/move/', proto_tank_move, name='proto-tank-move'),
 ]

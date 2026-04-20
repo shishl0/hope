@@ -3,7 +3,7 @@ from rest_framework import viewsets, generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .engine import calculate_cube_move
+from .engine import calculate_cube_move, calculate_proto_tank_move
 from .models import Tank, PlayerProfile, Arena, Lobby, LobbyPlayer
 from .serializers import TankSerializer, ArenaSerializer, PlayerProfileSerializer, LobbyStatusSerializer
 
@@ -67,3 +67,8 @@ def active_lobbies(request):
 @api_view(['POST'])
 def object_move(request):
     return Response(calculate_cube_move(request.data))
+
+
+@api_view(['POST'])
+def proto_tank_move(request):
+    return Response(calculate_proto_tank_move(request.data))
