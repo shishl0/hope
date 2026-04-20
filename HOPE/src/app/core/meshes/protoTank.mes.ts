@@ -9,6 +9,7 @@ export class ProtoTankMesh {
     private readonly body: THREE.Mesh;
     private readonly turret: THREE.Mesh;
     private readonly cannon: THREE.Mesh;
+    private readonly cannonLength: number;
 
     constructor(id: string, color = 0x2f8f46, size = new THREE.Vector3(1.6, 0.7, 2.4)) {
         this.id = id;
@@ -31,13 +32,13 @@ export class ProtoTankMesh {
         this.turret.receiveShadow = true;
         this.mash.add(this.turret);
 
-        const cannonLength = size.z * 0.75;
+        this.cannonLength = size.z * 0.75;
         const cannonRadius = Math.max(0.06, size.x * 0.05);
-        const cannonGeometry = new THREE.CylinderGeometry(cannonRadius, cannonRadius, cannonLength, 16);
+        const cannonGeometry = new THREE.CylinderGeometry(cannonRadius, cannonRadius, this.cannonLength, 16);
         const cannonMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
         this.cannon = new THREE.Mesh(cannonGeometry, cannonMaterial);
         this.cannon.rotation.x = Math.PI / 2;
-        this.cannon.position.set(0, 0, turretSize / 2 + cannonLength / 2);
+        this.cannon.position.set(0, 0, turretSize / 2 + this.cannonLength / 2);
         this.cannon.castShadow = true;
         this.turret.add(this.cannon);
     }
@@ -82,6 +83,23 @@ export class ProtoTankMesh {
 
     getTurretWorldYaw(): number {
         return this.mash.rotation.y + this.turret.rotation.y;
+    }
+
+    getCannonMuzzlePositionDto(): Vector3Dto {
+        return this.vectorToDto(this.getCannonMuzzlePosition());
+    }
+
+    getCannonDirectionDto(): Vector3Dto {
+        const direction = new THREE.Vector3(0, 1, 0);
+        const cannonWorldQuaternion = new THREE.Quaternion();
+        this.cannon.getWorldQuaternion(cannonWorldQuaternion);
+        direction.applyQuaternion(cannonWorldQuaternion);
+        direction.normalize();
+        return this.vectorToDto(direction);
+    }
+
+    private getCannonMuzzlePosition(): THREE.Vector3 {
+        return this.cannon.localToWorld(new THREE.Vector3(0, this.cannonLength / 2, 0));
     }
 
     dispose(): void {

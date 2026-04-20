@@ -9,12 +9,14 @@ import { LightService } from './light';
 import { InputHandler } from '../input/input-handler';
 import { ProtoTankInput } from '../input/player-input';
 import { GameNetworkHandler } from '../game-network/game-network-handler';
+import { BulletStateDto } from '../game-network/player-state-dto';
 
 import { ArenaMesh } from '../meshes/ArenaMesh';
+import { BulletMesh } from '../meshes/bullet.Mesh';
 import { ObstacleMesh } from '../meshes/ObstacleMesh';
 import { ProtoTankMesh } from '../meshes/protoTank.mes';
 
-type SceneMesh = ArenaMesh | ObstacleMesh | ProtoTankMesh;
+type SceneMesh = ArenaMesh | ObstacleMesh | ProtoTankMesh | BulletMesh;
 
 @Injectable({
   providedIn: 'root',
@@ -28,6 +30,8 @@ export class SceneService {
   private inputSubscription?: Subscription;
   private sceneObjects: SceneMesh[] = [];
   private requestInFlight = false;
+  private bulletRequestInFlight = false;
+  private bullets = new Map<string, BulletMesh>();
   private protoTankInputState: ProtoTankInput = {
     forward: false,
     backward: false,
@@ -42,7 +46,7 @@ export class SceneService {
   private RendererService = inject(RendererService);
   private LightService = inject(LightService);
 
-  private is_greed_helpor_work: boolean = true;
+  private is_greed_helpor_work: boolean = false;
   private readonly handleWindowResize = () => this.onWindowResize();
 
   private readonly InputHandler = inject(InputHandler);
@@ -51,7 +55,8 @@ export class SceneService {
   private initWebGLContext(canvas: HTMLCanvasElement): void {
   // Here you would set up your WebGL context, load assets, etc.
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x111111);
+    this.scene.background = new THREE.Color(0x8fc7ff);
+    this.scene.fog = new THREE.Fog(0x8fc7ff, 55, 140);
   }
 
   private greedHelperTurn(): void {
@@ -124,6 +129,7 @@ export class SceneService {
 
     const loop = () => {
       this.syncProtoTankMovementWithBackend(tank, obstacles);
+      this.syncProtoTankBulletsWithBackend(tank, obstacles);
       this.resizeCanvasIfNeeded();
 
       // Render the scene
@@ -146,6 +152,8 @@ export class SceneService {
     this.inputSubscription?.unsubscribe();
     this.InputHandler.stopListening();
     this.sceneObjects.forEach(object => object.dispose());
+    this.bullets.forEach(bullet => bullet.dispose());
+    this.bullets.clear();
     this.sceneObjects = [];
     console.log('Stopping scene and cleaning up resources.');
   }
@@ -208,6 +216,64 @@ export class SceneService {
       this.protoTankInputState.turretLeft ||
       this.protoTankInputState.turretRight
     );
+  }
+
+  private syncProtoTankBulletsWithBackend(tank: ProtoTankMesh, obstacles: ObstacleMesh[]): void {
+    if (this.bulletRequestInFlight) {
+      return;
+    }
+
+    const shouldFire = this.InputHandler.consumeBulletFireRequest();
+
+    if (!shouldFire && this.bullets.size === 0) {
+      return;
+    }
+
+    this.bulletRequestInFlight = true;
+
+    this.GameNetworkHandler.sendProtoTankBulletInput({
+      fire: shouldFire,
+      newBulletId: shouldFire ? `bullet-${Date.now()}` : undefined,
+      muzzlePosition: tank.getCannonMuzzlePositionDto(),
+      muzzleDirection: tank.getCannonDirectionDto(),
+      bullets: Array.from(this.bullets.values()).map(bullet => bullet.toBulletStateDto()),
+      obstacles: obstacles.map(obstacle => obstacle.toCollisionDto()),
+    }).subscribe({
+      next: state => {
+        this.applyBulletStates(state.bullets);
+      },
+      error: error => {
+        console.error('Could not sync proto tank bullets:', error);
+        this.bulletRequestInFlight = false;
+      },
+      complete: () => {
+        this.bulletRequestInFlight = false;
+      },
+    });
+  }
+
+  private applyBulletStates(states: BulletStateDto[]): void {
+    const activeBulletIds = new Set(states.map(state => state.id));
+
+    this.bullets.forEach((bullet, id) => {
+      if (!activeBulletIds.has(id)) {
+        bullet.removeFromScene(this.scene);
+        bullet.dispose();
+        this.bullets.delete(id);
+      }
+    });
+
+    states.forEach(state => {
+      let bullet = this.bullets.get(state.id);
+
+      if (!bullet) {
+        bullet = new BulletMesh(state.id, new THREE.Vector3(state.size.x, state.size.y, state.size.z));
+        bullet.addtoScene(this.scene);
+        this.bullets.set(state.id, bullet);
+      }
+
+      bullet.applyBulletState(state);
+    });
   }
   
 }

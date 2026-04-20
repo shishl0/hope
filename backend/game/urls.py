@@ -4,7 +4,10 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
-from .views import TankViewSet, ArenaList, player_profile_detail, active_lobbies, object_move, proto_tank_move
+from .views import (
+    TankViewSet, ArenaList, player_profile_detail, active_lobbies,
+    catalog_metadata, object_move, proto_tank_move, proto_tank_bullets
+)
 
 router = DefaultRouter()
 router.register(r'tanks', TankViewSet)
@@ -19,6 +22,7 @@ urlpatterns = [
     path('arenas/', ArenaList.as_view(), name='arena-list'),
     
     # FBV
+    path('catalog/', catalog_metadata, name='catalog-metadata'),
     path('profile/', player_profile_detail, name='player-profile'),
     path('lobbies/active/', active_lobbies, name='active-lobbies'),
 
@@ -26,4 +30,5 @@ urlpatterns = [
     path('object/move/', object_move, name='object-move'),
     path('object/move/state', object_move, name='object-move-state'),
     path('proto-tank/move/', proto_tank_move, name='proto-tank-move'),
+    path('proto-tank/bullets/', proto_tank_bullets, name='proto-tank-bullets'),
 ]

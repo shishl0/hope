@@ -46,3 +46,30 @@ export interface ProtoTankMoveResponseDto {
     cannonRotation: Vector3Dto;
     collided: boolean;
 }
+
+export interface BulletStateDto {
+    id: string;
+    position: Vector3Dto;
+    direction: Vector3Dto;
+    size: Vector3Dto;
+    alive: boolean;
+}
+
+export interface BulletHitDto {
+    bulletId: string;
+    type: string;
+}
+
+export interface ProtoTankBulletRequestDto {
+    fire: boolean;
+    newBulletId?: string;
+    muzzlePosition: Vector3Dto;
+    muzzleDirection: Vector3Dto;
+    bullets: BulletStateDto[];
+    obstacles: CollisionObjectDto[];
+}
+
+export interface ProtoTankBulletResponseDto {
+    bullets: BulletStateDto[];
+    hits: BulletHitDto[];
+}

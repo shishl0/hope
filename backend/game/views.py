@@ -1,9 +1,9 @@
 from django.shortcuts import render
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from .engine import calculate_cube_move, calculate_proto_tank_move
+from .engine import calculate_cube_move, calculate_proto_tank_move, calculate_proto_tank_bullets
 from .models import Tank, PlayerProfile, Arena, Lobby, LobbyPlayer
 from .serializers import TankSerializer, ArenaSerializer, PlayerProfileSerializer, LobbyStatusSerializer
 
@@ -64,6 +64,18 @@ def active_lobbies(request):
     return Response(serializer.data)
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def catalog_metadata(request):
+    tanks = Tank.objects.select_related('stats').all()
+    arenas = Arena.objects.prefetch_related('obstacles').all()
+
+    return Response({
+        'tanks': TankSerializer(tanks, many=True).data,
+        'arenas': ArenaSerializer(arenas, many=True).data,
+    })
+
+
 @api_view(['POST'])
 def object_move(request):
     return Response(calculate_cube_move(request.data))
@@ -72,3 +84,8 @@ def object_move(request):
 @api_view(['POST'])
 def proto_tank_move(request):
     return Response(calculate_proto_tank_move(request.data))
+
+
+@api_view(['POST'])
+def proto_tank_bullets(request):
+    return Response(calculate_proto_tank_bullets(request.data))

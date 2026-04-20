@@ -4,6 +4,8 @@ import { Observable } from 'rxjs';
 import {
   MoveRequestDto,
   MoveResponseDto,
+  ProtoTankBulletRequestDto,
+  ProtoTankBulletResponseDto,
   ProtoTankMoveRequestDto,
   ProtoTankMoveResponseDto,
 } from './player-state-dto';
@@ -15,6 +17,7 @@ export class GameNetworkHandler {
 
   private readonly cubeMoveUrl = 'http://127.0.0.1:8001/api/object/move/';
   private readonly protoTankMoveUrl = 'http://127.0.0.1:8001/api/proto-tank/move/';
+  private readonly protoTankBulletUrl = 'http://127.0.0.1:8001/api/proto-tank/bullets/';
 
   constructor(private http: HttpClient) {}
 
@@ -28,6 +31,10 @@ export class GameNetworkHandler {
 
   sendProtoTankMoveInput(input: ProtoTankMoveRequestDto): Observable<ProtoTankMoveResponseDto> {
     return this.http.post<ProtoTankMoveResponseDto>(this.protoTankMoveUrl, input);
+  }
+
+  sendProtoTankBulletInput(input: ProtoTankBulletRequestDto): Observable<ProtoTankBulletResponseDto> {
+    return this.http.post<ProtoTankBulletResponseDto>(this.protoTankBulletUrl, input);
   }
 
 }

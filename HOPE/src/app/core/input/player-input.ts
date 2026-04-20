@@ -17,3 +17,8 @@ export interface ProtoTankInput {
     turretRight: boolean;
     timestamp: number;
 }
+
+export interface BulletInput {
+    fire: boolean;
+    timestamp: number;
+}
