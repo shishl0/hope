@@ -11,6 +11,9 @@ import { PlayerInput } from '../input/player-input';
 import { GameNetworkHandler } from '../game-network/game-network-handler';
 
 import { CubeMesh } from '../meshes/cube.mesh';
+import { ProtoTankMesh } from '../meshes/protoTank.mes';
+
+type CollidableMesh = CubeMesh | ProtoTankMesh;
 
 @Injectable({
   providedIn: 'root',
@@ -22,13 +25,15 @@ export class SceneService {
   private canvas?: HTMLCanvasElement;
   private resizeObserver?: ResizeObserver;
   private inputSubscription?: Subscription;
-  private sceneObjects: CubeMesh[] = [];
+  private sceneObjects: CollidableMesh[] = [];
   private requestInFlight = false;
   private inputState: PlayerInput = {
     forward: false,
     backward: false,
     rotateLeft: false,
     rotateRight: false,
+    turretLeft: false,
+    turretRight: false,
     timestamp: Date.now(),
   };
 
@@ -76,9 +81,9 @@ export class SceneService {
     this.greedHelperTurn();
     this.initLigt();
 
-    const cube = new CubeMesh('player', 0x00ff00, new THREE.Vector3(1, 1, 1));
-    cube.mash.position.set(0, 0.5, 0);
-    cube.addtoScene(this.scene);
+    const tank = new ProtoTankMesh('player', 0x2f8f46, new THREE.Vector3(1.6, 0.7, 2.4));
+    tank.mash.position.set(0, 0.35, 0);
+    tank.addtoScene(this.scene);
 
     const obstacle = new CubeMesh('obstacle-1', 0x888888, new THREE.Vector3(2, 1, 2));
     obstacle.mash.position.set(0, 0.5, 5);
@@ -89,7 +94,7 @@ export class SceneService {
     obstacle2.addtoScene(this.scene);
 
     const obstacles = [obstacle, obstacle2];
-    this.sceneObjects = [cube, ...obstacles];
+    this.sceneObjects = [tank, ...obstacles];
 
     // input handling example
     this.InputHandler.startListening();
@@ -97,7 +102,7 @@ export class SceneService {
       this.inputState = inputState;
     });
 
-    this.animate(cube, obstacles);
+    this.animate(tank, obstacles);
 
     window.addEventListener('resize', this.handleWindowResize);
     this.resizeObserver = new ResizeObserver(() => this.onWindowResize());
@@ -111,10 +116,11 @@ export class SceneService {
     }
   }
 
-  private animate(cube: CubeMesh, obstacles: CubeMesh[]): void {
+  private animate(tank: ProtoTankMesh, obstacles: CubeMesh[]): void {
 
     const loop = (frameTime: number) => {
-      this.syncCubeWithBackend(cube, obstacles);
+      this.updateTurret(tank);
+      this.syncMovementWithBackend(tank, obstacles);
       this.resizeCanvasIfNeeded();
 
       // Render the scene
@@ -157,8 +163,8 @@ export class SceneService {
     }
   }
 
-  private syncCubeWithBackend(cube: CubeMesh, obstacles: CubeMesh[]): void {
-    if (this.requestInFlight || !this.hasMovementInput()) {
+  private syncMovementWithBackend(tank: ProtoTankMesh, obstacles: CubeMesh[]): void {
+    if (this.requestInFlight || !this.hasHullMovementInput()) {
       return;
     }
 
@@ -166,12 +172,12 @@ export class SceneService {
 
     this.GameNetworkHandler.sendPlayerInput({
       ...this.inputState,
-      player: cube.toCollisionDto(),
+      player: tank.toCollisionDto(),
       obstacles: obstacles.map(obstacle => obstacle.toCollisionDto()),
     }).subscribe({
       next: state => {
-        cube.applyMoveResponse(state);
-        this.CameraService.follow(cube.mash.position);
+        tank.applyMoveResponse(state);
+        this.CameraService.follow(tank.mash.position);
       },
       error: error => {
         console.error('Could not sync player input:', error);
@@ -183,7 +189,17 @@ export class SceneService {
     });
   }
 
-  private hasMovementInput(): boolean {
+  private updateTurret(tank: ProtoTankMesh): void {
+    const turretDirection =
+      (this.inputState.turretLeft ? 1 : 0) -
+      (this.inputState.turretRight ? 1 : 0);
+
+    if (turretDirection !== 0) {
+      tank.rotateTurret(turretDirection);
+    }
+  }
+
+  private hasHullMovementInput(): boolean {
     return (
       this.inputState.forward ||
       this.inputState.backward ||

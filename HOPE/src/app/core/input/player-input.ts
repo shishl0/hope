@@ -3,5 +3,7 @@ export interface PlayerInput {
     backward: boolean;
     rotateLeft: boolean;
     rotateRight: boolean;
+    turretLeft: boolean;
+    turretRight: boolean;
     timestamp: number;
 }

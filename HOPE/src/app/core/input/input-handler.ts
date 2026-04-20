@@ -12,6 +12,8 @@ export class InputHandler {
     backward: false,
     rotateLeft: false,
     rotateRight: false,
+    turretLeft: false,
+    turretRight: false,
     timestamp: Date.now(),
   };
 
@@ -56,6 +58,18 @@ export class InputHandler {
           change = true;
         }
         break;
+      case 'KeyU':
+        if (!this.inputState.turretLeft) {
+          this.inputState.turretLeft = true;
+          change = true;
+        }
+        break;
+      case 'KeyI':
+        if (!this.inputState.turretRight) {
+          this.inputState.turretRight = true;
+          change = true;
+        }
+        break;
     }
 
     if (change) {
@@ -90,6 +104,18 @@ export class InputHandler {
       case 'KeyD':
         if (this.inputState.rotateRight) {
           this.inputState.rotateRight = false;
+          change = true;
+        }
+        break;
+      case 'KeyU':
+        if (this.inputState.turretLeft) {
+          this.inputState.turretLeft = false;
+          change = true;
+        }
+        break;
+      case 'KeyI':
+        if (this.inputState.turretRight) {
+          this.inputState.turretRight = false;
           change = true;
         }
         break;
