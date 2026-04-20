@@ -40,9 +40,13 @@ export interface ProtoTankMoveRequestDto {
 }
 
 export interface ProtoTankMoveResponseDto {
+    type?: string;
     position: Vector3Dto;
     rotation: Vector3Dto;
     turretRotation: Vector3Dto;
     cannonRotation: Vector3Dto;
+    velocity: number;
+    speed_kmh: number;
+    at_wall: boolean;
     collided: boolean;
 }

@@ -1,13 +1,129 @@
 :host {
-    display: block;
-    width: 100%;
-    height: 100%;
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 canvas {
-    width: 100%;
-    height: 100%;
-    display: block;
-    background: #111;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
+/* ── HUD container ─────────────────────────────────────────────── */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;          /* pass clicks through to canvas */
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: #e0e8ff;
+  user-select: none;
+}
+
+/* ── Connection badge (top-left) ─────────────────────────────── */
+
+.hud-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.badge-ok  { background: rgba(0, 200, 80, 0.25); color: #40ff80; border: 1px solid #20a050; }
+.badge-err { background: rgba(255, 60, 60, 0.25); color: #ff6060; border: 1px solid #a03030; }
+
+/* ── Speedometer (bottom-centre) ─────────────────────────────── */
+
+.hud-speed {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.speed-value {
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 0 12px rgba(80, 160, 255, 0.7);
+}
+
+.speed-unit {
+  font-size: 13px;
+  color: #8aabdd;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.speed-bar-track {
+  width: 120px;
+  height: 4px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.speed-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3080ff, #80d0ff);
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+.speed-bar-fill.bar-red {
+  background: linear-gradient(90deg, #ff3030, #ff8080);
+}
+
+/* ── Debug panel (top-right) ─────────────────────────────────── */
+
+.hud-debug {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(10, 16, 36, 0.65);
+  border: 1px solid rgba(80, 120, 200, 0.25);
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 160px;
+  backdrop-filter: blur(4px);
+}
+
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  gap: 12px;
+}
+
+.lbl { color: #6080b0; text-transform: uppercase; letter-spacing: 1px; }
+.val { color: #c8e0ff; font-weight: 600; }
+.val small { font-size: 9px; color: #6080b0; margin-left: 1px; }
+.debug-row.warn { color: #ff6060; justify-content: center; font-weight: 700; }
+
+/* ── Controls hint (bottom-right) ─────────────────────────────── */
+
+.hud-controls {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  font-size: 11px;
+  color: rgba(160, 190, 230, 0.5);
+  letter-spacing: 0.5px;
+}

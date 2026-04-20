@@ -13,7 +13,7 @@ export class CameraService {
   private lerpAlpha: number = 0.1;
 
   init(aspect: number): THREE.PerspectiveCamera {
-    this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 2000);
     this.camera.position.set(0, 1.5, 2.1);
     this.camera.rotateX(-0.3); // Slightly tilt the camera downwards
     return this.camera;

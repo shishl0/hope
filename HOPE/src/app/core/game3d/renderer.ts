@@ -9,10 +9,16 @@ export class RendererService {
   private pixelRatio = 1;
 
   init(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // Disable antialias for major performance gain and prefer high-performance GPU
+    this.renderer = new THREE.WebGLRenderer({ 
+      canvas, 
+      antialias: false,
+      powerPreference: 'high-performance'
+    });
 
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Use standard PCF for faster rendering (Soft map is too heavy for 60fps full screen)
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
@@ -36,7 +42,8 @@ export class RendererService {
   resizeToDisplaySize(canvas: HTMLCanvasElement): boolean {
     const width = Math.max(1, canvas.clientWidth || window.innerWidth);
     const height = Math.max(1, canvas.clientHeight || window.innerHeight);
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    // Lock pixel ratio to 1. Retina displays rendering at 2x severely degrades FPS.
+    const pixelRatio = 1;
     const bufferWidth = Math.floor(width * pixelRatio);
     const bufferHeight = Math.floor(height * pixelRatio);
     const needsResize =

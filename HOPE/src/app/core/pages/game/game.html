@@ -1,1 +1,42 @@
 <canvas #gameCanvas></canvas>
+
+<!-- ── Debug HUD ───────────────────────────────────────────────── -->
+<div class="hud">
+
+  <!-- Connection badge -->
+  <div class="hud-badge" [class.badge-ok]="hud().connected" [class.badge-err]="!hud().connected">
+    {{ hud().connected ? '● WS' : '○ WS' }}
+  </div>
+
+  <!-- Speedometer -->
+  <div class="hud-speed">
+    <span class="speed-value">{{ hud().speed_kmh | number:'1.0-0' }}</span>
+    <span class="speed-unit">km/h</span>
+    <div class="speed-bar-track">
+      <div class="speed-bar-fill"
+           [style.width.%]="(hud().speed_kmh / 65) * 100"
+           [class.bar-red]="hud().at_wall"></div>
+    </div>
+  </div>
+
+  <!-- Debug panel -->
+  <div class="hud-debug">
+    <div class="debug-row"><span class="lbl">FPS</span><span class="val">{{ hud().fps }}</span></div>
+    <div class="debug-row"><span class="lbl">TPS</span><span class="val">{{ hud().tps }}</span></div>
+    <div class="debug-row"><span class="lbl">PING</span><span class="val">{{ hud().ping }}<small>ms</small></span></div>
+    <div class="debug-row"><span class="lbl">VEL</span><span class="val">{{ hud().velocity | number:'1.3-3' }}</span></div>
+    <div class="debug-row">
+      <span class="lbl">POS</span>
+      <span class="val">{{ hud().pos.x | number:'1.1-1' }}, {{ hud().pos.z | number:'1.1-1' }}</span>
+    </div>
+    @if (hud().at_wall) {
+      <div class="debug-row warn">⚠ WALL</div>
+    }
+  </div>
+
+  <!-- Controls hint -->
+  <div class="hud-controls">
+    WASD · Move &nbsp;|&nbsp; U/I · Turret
+  </div>
+
+</div>

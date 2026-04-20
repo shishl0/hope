@@ -6,7 +6,7 @@ from copy import deepcopy
 
 from .collision import clamp_to_world, object_collides
 
-TPS = 30
+TPS = 60
 TICK_INTERVAL = 1.0 / TPS
 MAP_WIDTH = 2000
 MAP_HEIGHT = 2000

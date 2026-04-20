@@ -84,6 +84,12 @@ export class ProtoTankMesh {
         return this.mash.rotation.y + this.turret.rotation.y;
     }
 
+    /** Smoothly interpolate turret rotation toward a target Y angle (shortest path). */
+    lerpTurretRotationY(targetY: number, alpha: number): void {
+        let delta = ((targetY - this.turret.rotation.y) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+        this.turret.rotation.y += delta * alpha;
+    }
+
     dispose(): void {
         this.body.geometry.dispose();
         (this.body.material as THREE.MeshStandardMaterial).dispose();

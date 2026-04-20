@@ -58,24 +58,35 @@ export class LightService {
 
   createSunLight(scene: THREE.Scene): void {
 
-    scene.add(this.createHemisphereLight(0xbfdcff, 0x3f493d, 1.4));
-    scene.add(this.createAmbientLight(0xffffff, 0.35));
+    // Sky/ground ambient fill — deep sky blue top, warm earthy bottom
+    scene.add(this.createHemisphereLight(0x9dc8e8, 0x4a3728, 1.2));
 
-    this.sunLight = this.createDirectionalLight(0xffffff, 2.4, new THREE.Vector3(35, 70, 45));
+    // Main sun — bright warm directional with high-res shadows
+    this.sunLight = this.createDirectionalLight(0xfff5e0, 3.5, new THREE.Vector3(50, 80, 40));
     this.sunLight.target.position.set(0, 0, 0);
-
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width = 2048;
-    this.sunLight.shadow.mapSize.height = 2048;
-    this.sunLight.shadow.camera.near = 0.5;
-    this.sunLight.shadow.camera.far = 250;
-    this.sunLight.shadow.camera.left = -60;
-    this.sunLight.shadow.camera.right = 60;
-    this.sunLight.shadow.camera.top = 60;
-    this.sunLight.shadow.camera.bottom = -60;
-
+    this.sunLight.shadow.mapSize.width  = 1024;
+    this.sunLight.shadow.mapSize.height = 1024;
+    this.sunLight.shadow.camera.near   = 0.5;
+    this.sunLight.shadow.camera.far    = 300;
+    this.sunLight.shadow.camera.left   = -80;
+    this.sunLight.shadow.camera.right  =  80;
+    this.sunLight.shadow.camera.top    =  80;
+    this.sunLight.shadow.camera.bottom = -80;
+    this.sunLight.shadow.bias = -0.0003;
     scene.add(this.sunLight);
     scene.add(this.sunLight.target);
+
+    // Warm fill light from the opposite side — softens harsh shadows
+    const fillLight = this.createDirectionalLight(0xffe4b0, 1.0, new THREE.Vector3(-40, 30, -30));
+    scene.add(fillLight);
+
+    // Cool rim/back light for depth and silhouette separation
+    const rimLight = this.createDirectionalLight(0x9bc8ff, 0.6, new THREE.Vector3(-10, 10, -50));
+    scene.add(rimLight);
+
+    // Subtle ambient so no surface is completely black
+    scene.add(this.createAmbientLight(0xffffff, 0.18));
   }
 
   updateSunLightPosition(position: THREE.Vector3): void {
