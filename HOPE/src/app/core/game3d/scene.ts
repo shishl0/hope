@@ -10,10 +10,11 @@ import { InputHandler } from '../input/input-handler';
 import { ProtoTankInput } from '../input/player-input';
 import { GameNetworkHandler } from '../game-network/game-network-handler';
 
-import { CubeMesh } from '../meshes/cube.mesh';
+import { ArenaMesh } from '../meshes/ArenaMesh';
+import { ObstacleMesh } from '../meshes/ObstacleMesh';
 import { ProtoTankMesh } from '../meshes/protoTank.mes';
 
-type CollidableMesh = CubeMesh | ProtoTankMesh;
+type SceneMesh = ArenaMesh | ObstacleMesh | ProtoTankMesh;
 
 @Injectable({
   providedIn: 'root',
@@ -25,7 +26,7 @@ export class SceneService {
   private canvas?: HTMLCanvasElement;
   private resizeObserver?: ResizeObserver;
   private inputSubscription?: Subscription;
-  private sceneObjects: CollidableMesh[] = [];
+  private sceneObjects: SceneMesh[] = [];
   private requestInFlight = false;
   private protoTankInputState: ProtoTankInput = {
     forward: false,
@@ -81,20 +82,23 @@ export class SceneService {
     this.greedHelperTurn();
     this.initLigt();
 
+    const arena = new ArenaMesh('/3d_Models/arena-1.fbx');
+    arena.addtoScene(this.scene);
+
     const tank = new ProtoTankMesh('player', 0x2f8f46, new THREE.Vector3(1.6, 0.7, 2.4));
     tank.mash.position.set(0, 0.35, 0);
     tank.addtoScene(this.scene);
 
-    const obstacle = new CubeMesh('obstacle-1', 0x888888, new THREE.Vector3(2, 1, 2));
+    const obstacle = new ObstacleMesh('obstacle-1', new THREE.Vector3(2, 1, 2));
     obstacle.mash.position.set(0, 0.5, 5);
     obstacle.addtoScene(this.scene);
 
-    const obstacle2 = new CubeMesh('obstacle-2', 0x888888, new THREE.Vector3(2, 1, 2));
+    const obstacle2 = new ObstacleMesh('obstacle-2', new THREE.Vector3(2, 1, 2));
     obstacle2.mash.position.set(4, 0.5, 2);
     obstacle2.addtoScene(this.scene);
 
     const obstacles = [obstacle, obstacle2];
-    this.sceneObjects = [tank, ...obstacles];
+    this.sceneObjects = [arena, tank, ...obstacles];
 
     // input handling example
     this.InputHandler.startListening();
@@ -116,7 +120,7 @@ export class SceneService {
     }
   }
 
-  private animate(tank: ProtoTankMesh, obstacles: CubeMesh[]): void {
+  private animate(tank: ProtoTankMesh, obstacles: ObstacleMesh[]): void {
 
     const loop = () => {
       this.syncProtoTankMovementWithBackend(tank, obstacles);
@@ -162,7 +166,7 @@ export class SceneService {
     }
   }
 
-  private syncProtoTankMovementWithBackend(tank: ProtoTankMesh, obstacles: CubeMesh[]): void {
+  private syncProtoTankMovementWithBackend(tank: ProtoTankMesh, obstacles: ObstacleMesh[]): void {
     if (this.requestInFlight || !this.hasProtoTankInput()) {
       return;
     }
