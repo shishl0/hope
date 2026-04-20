@@ -14,6 +14,7 @@ export class InputHandler {
     rotateRight: false,
     turretLeft: false,
     turretRight: false,
+    fire: false,
     timestamp: Date.now(),
   };
 
@@ -34,11 +35,35 @@ export class InputHandler {
   startListening(): void {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('mousedown', this.handleMouseDown);
+    window.addEventListener('mouseup', this.handleMouseUp);
   }
 
   stopListening(): void {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('mousedown', this.handleMouseDown);
+    window.removeEventListener('mouseup', this.handleMouseUp);
+  }
+
+  private handleMouseDown = (event: MouseEvent): void => {
+    if (event.button === 0 && !this.inputState.fire) { // Left click
+      this.inputState.fire = true;
+      this.notifyChanges();
+    }
+  }
+
+  private handleMouseUp = (event: MouseEvent): void => {
+    if (event.button === 0 && this.inputState.fire) {
+      this.inputState.fire = false;
+      this.notifyChanges();
+    }
+  }
+
+  private notifyChanges(): void {
+    this.inputState.timestamp = Date.now();
+    this.inputStateSubject.next({ ...this.inputState });
+    this.protoTankInputStateSubject.next(this.createProtoTankInput());
   }
 
   private handleKeyDown = (event: KeyboardEvent): void => {
@@ -82,20 +107,16 @@ export class InputHandler {
         }
         break;
       case 'Space':
-        if (!this.bulletInputState.fire) {
-          this.bulletInputState.fire = true;
-          this.bulletInputState.timestamp = Date.now();
-          this.bulletFireRequested = true;
-          this.bulletInputStateSubject.next({ ...this.bulletInputState });
+        if (!this.inputState.fire) {
+          this.inputState.fire = true;
+          change = true;
         }
         event.preventDefault();
         break;
     }
 
     if (change) {
-      this.inputState.timestamp = Date.now();
-      this.inputStateSubject.next({ ...this.inputState });
-      this.protoTankInputStateSubject.next(this.createProtoTankInput());
+      this.notifyChanges();
     }
 
   }
@@ -141,19 +162,16 @@ export class InputHandler {
         }
         break;
       case 'Space':
-        if (this.bulletInputState.fire) {
-          this.bulletInputState.fire = false;
-          this.bulletInputState.timestamp = Date.now();
-          this.bulletInputStateSubject.next({ ...this.bulletInputState });
+        if (this.inputState.fire) {
+          this.inputState.fire = false;
+          change = true;
         }
         event.preventDefault();
         break;
     }
 
     if (change) {
-      this.inputState.timestamp = Date.now();
-      this.inputStateSubject.next({ ...this.inputState });
-      this.protoTankInputStateSubject.next(this.createProtoTankInput());
+      this.notifyChanges();
     }
 
   }
@@ -196,6 +214,7 @@ export class InputHandler {
       hullRotateRight: this.inputState.rotateRight,
       turretLeft: this.inputState.turretLeft,
       turretRight: this.inputState.turretRight,
+      fire: this.inputState.fire,
       timestamp: this.inputState.timestamp,
     };
   }

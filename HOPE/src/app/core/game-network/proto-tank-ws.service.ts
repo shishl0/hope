@@ -23,9 +23,10 @@ export class ProtoTankWsService implements OnDestroy {
   private destroyed = false;
 
   // ── Public streams ──────────────────────────────────────────
-  readonly state$  = new Subject<number[]>();
+  readonly state$  = new Subject<any[]>();
   readonly status$ = new BehaviorSubject<WsStatus>('disconnected');
   readonly stats$  = new BehaviorSubject<WsStats>({ ping: 0, tps: 0, connected: false });
+  readonly myId$   = new BehaviorSubject<string>('');
 
   // ── Ping tracking ───────────────────────────────────────────
   private pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -60,6 +61,8 @@ export class ProtoTankWsService implements OnDestroy {
         if (Array.isArray(data)) {
           this.ticksThisSecond++;
           this.state$.next(data);
+        } else if (data.type === 'init') {
+          this.myId$.next(data.id);
         } else if (data.type === 'pong') {
           this.lastPing = Date.now() - this.pingSentAt;
           this._emitStats();
@@ -81,6 +84,7 @@ export class ProtoTankWsService implements OnDestroy {
     forward: boolean; backward: boolean;
     hullRotateLeft: boolean; hullRotateRight: boolean;
     turretLeft: boolean; turretRight: boolean;
+    fire: boolean;
   }): void {
     this._send({ type: 'input', ...input });
   }

@@ -8,6 +8,22 @@
     {{ hud().connected ? '● WS' : '○ WS' }}
   </div>
 
+  <!-- Reload Indicator -->
+  <div class="hud-reload">
+    <div class="reload-lbl">
+      @if (hud().reload === 0) {
+        <span class="ready">ОРУДИЕ К БОЮ ГОТОВО</span>
+      } @else {
+        <span class="cooldown">ПЕРЕЗАРЯДКА: {{ hud().reload | number:'1.1-1' }} СЕК</span>
+      }
+    </div>
+    <div class="reload-bar-track">
+      <div class="reload-bar-fill"
+           [style.width.%]="hud().reload === 0 ? 100 : ((7 - hud().reload) / 7) * 100"
+           [class.bar-ready]="hud().reload === 0"></div>
+    </div>
+  </div>
+
   <!-- Speedometer -->
   <div class="hud-speed">
     <span class="speed-value">{{ hud().speed_kmh | number:'1.0-0' }}</span>
@@ -36,7 +52,7 @@
 
   <!-- Controls hint -->
   <div class="hud-controls">
-    WASD · Move &nbsp;|&nbsp; U/I · Turret
+    WASD · Move &nbsp;|&nbsp; U/I · Turret &nbsp;|&nbsp; SPACE · Fire
   </div>
 
 </div>

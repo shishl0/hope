@@ -16,7 +16,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   hud = signal<GameHudStats>({
     fps: 0, tps: 0, ping: 0,
     speed_kmh: 0, velocity: 0,
-    at_wall: false, connected: false,
+    at_wall: false, reload: 0, connected: false,
     pos: { x: 0, z: 0 },
   });
 

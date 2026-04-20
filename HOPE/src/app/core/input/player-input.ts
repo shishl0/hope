@@ -5,6 +5,7 @@ export interface PlayerInput {
     rotateRight: boolean;
     turretLeft: boolean;
     turretRight: boolean;
+    fire: boolean;
     timestamp: number;
 }
 
@@ -15,6 +16,7 @@ export interface ProtoTankInput {
     hullRotateRight: boolean;
     turretLeft: boolean;
     turretRight: boolean;
+    fire: boolean;
     timestamp: number;
 }
 

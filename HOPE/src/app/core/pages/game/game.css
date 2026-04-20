@@ -127,3 +127,44 @@ canvas {
   color: rgba(160, 190, 230, 0.5);
   letter-spacing: 0.5px;
 }
+
+/* ── Reload Indicator (bottom-left) ─────────────────────────────── */
+
+.hud-reload {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+}
+
+.reload-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+
+.reload-lbl .ready { color: #40ff80; text-shadow: 0 0 8px rgba(64, 255, 128, 0.5); }
+.reload-lbl .cooldown { color: #ff9933; text-shadow: 0 0 8px rgba(255, 153, 51, 0.5); }
+
+.reload-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.reload-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #cc6600, #ffaa33);
+  width: 0%;
+  transition: width 0.1s linear, background 0.3s ease;
+}
+
+.reload-bar-fill.bar-ready {
+  background: linear-gradient(90deg, #00aa44, #40ff80);
+}

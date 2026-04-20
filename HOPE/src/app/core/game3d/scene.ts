@@ -46,6 +46,7 @@ export interface GameHudStats {
   speed_kmh: number;
   velocity:  number;
   at_wall:   boolean;
+  reload:    number;
   connected: boolean;
   pos: { x: number; z: number };
 }
@@ -59,7 +60,7 @@ export class SceneService {
   readonly hud$ = new BehaviorSubject<GameHudStats>({
     fps: 0, tps: 0, ping: 0,
     speed_kmh: 0, velocity: 0,
-    at_wall: false, connected: false,
+    at_wall: false, reload: 0, connected: false,
     pos: { x: 0, z: 0 },
   });
 
@@ -73,13 +74,15 @@ export class SceneService {
   private statsSub?: Subscription;
 
   private sceneObjects: SceneMesh[] = [];
+  private players = new Map<string, ProtoTankMesh>();
+  private targetPlayers = new Map<string, any>();
+  private localPlayerId = '';
 
   // Server-authoritative targets (updated on every server tick)
   private targetPos     = new THREE.Vector3(0, 0.35, 0);
-  private targetRotY    = 0;
-  private targetTurretY = 0;
-  private lastState = { speed_kmh: 0, velocity: 0, at_wall: false };
+  private lastState = { speed_kmh: 0, velocity: 0, at_wall: false, reload: 0 };
   private wsStats: WsStats = { ping: 0, tps: 0, connected: false };
+  private bulletMeshes: BulletMesh[] = [];
 
   // FPS counter
   private fpsFrames  = 0;
@@ -122,10 +125,6 @@ export class SceneService {
     const arena = new ArenaMesh('/3d_Models/arena-1.fbx');
     arena.addtoScene(this.scene);
 
-    const tank = new ProtoTankMesh('player', 0x2f8f46, new THREE.Vector3(1.6, 0.7, 2.4));
-    tank.mash.position.set(0, 0.35, 0);
-    tank.addtoScene(this.scene);
-
     const obs1 = new ObstacleMesh('obstacle-1', new THREE.Vector3(2, 1, 2));
     obs1.mash.position.set(0, 0.5, 5);
     obs1.addtoScene(this.scene);
@@ -134,9 +133,10 @@ export class SceneService {
     obs2.mash.position.set(4, 0.5, 2);
     obs2.addtoScene(this.scene);
 
-    this.sceneObjects = [arena, tank, obs1, obs2];
+    this.sceneObjects = [arena, obs1, obs2];
 
     // ── Network ───────────────────────────────────────────────────
+    this.WsService.myId$.subscribe(id => this.localPlayerId = id);
     this.WsService.connect();
 
     // Receive server ticks → update lerp targets
@@ -154,7 +154,7 @@ export class SceneService {
 
     // ── Render loop (Run outside Angular Zone for 60 FPS) ────────
     this.ngZone.runOutsideAngular(() => {
-      this._animate(tank);
+      this._animate();
     });
 
     window.addEventListener('resize', this._onResize);
@@ -210,21 +210,76 @@ export class SceneService {
     }
   }
 
-  // ── State application ─────────────────────────────────────────
+  private _applyState(s: any[]): void {
+    if (!s || s.length < 2) return;
+    const playersData = s[0] as any[];
+    const bulletData = s[1] as [number, number, number, number][];
 
-  private _applyState(s: number[]): void {
-    // Array format: [x, z, rot_y, turr_y, speed_kmh, at_wall]
-    this.targetPos.set(s[0], 0.35, s[1]);
-    this.targetRotY    = s[2];
-    this.targetTurretY = s[3];
-    this.lastState.speed_kmh = s[4];
-    this.lastState.velocity  = s[4] / 3.6;
-    this.lastState.at_wall   = s[5] === 1;
+    const activeIds = new Set<string>();
+
+    for (const p of playersData) {
+        activeIds.add(p.id);
+        
+        if (!this.players.has(p.id)) {
+            const color = p.id === this.localPlayerId ? 0x2f8f46 : Math.random() * 0xffffff;
+            const tank = new ProtoTankMesh(p.id, color, new THREE.Vector3(1.6, 0.7, 2.4));
+            tank.addtoScene(this.scene);
+            this.players.set(p.id, tank);
+        }
+        
+        this.targetPlayers.set(p.id, {
+            pos: new THREE.Vector3(p.x, 0.35, p.z),
+            rotY: p.ry,
+            turrY: p.ty
+        });
+
+        if (p.id === this.localPlayerId) {
+            this.lastState.speed_kmh = p.sp;
+            this.lastState.velocity  = p.sp / 3.6;
+            this.lastState.at_wall   = p.w === 1;
+            this.lastState.reload    = p.rld;
+        }
+    }
+    
+    // Remove disconnected players
+    for (const id of Array.from(this.players.keys())) {
+        if (!activeIds.has(id)) {
+            const tank = this.players.get(id)!;
+            tank.removeFromScene(this.scene);
+            tank.dispose();
+            this.players.delete(id);
+            this.targetPlayers.delete(id);
+        }
+    }
+
+    this._syncBullets(bulletData);
+  }
+
+  private _syncBullets(data: [number, number, number, number][]): void {
+    if (!data) return;
+    
+    while (this.bulletMeshes.length < data.length) {
+      const bm = new BulletMesh(`b_${this.bulletMeshes.length}`);
+      bm.addtoScene(this.scene);
+      this.bulletMeshes.push(bm);
+    }
+    
+    for (let i = data.length; i < this.bulletMeshes.length; i++) {
+      this.bulletMeshes[i].mash.visible = false;
+    }
+
+    for (let i = 0; i < data.length; i++) {
+        const bm = this.bulletMeshes[i];
+        // Snap bullet to server pos every packet, then extrapolate
+        bm.mash.position.set(data[i][0], 0.65, data[i][1]);
+        (bm as any).vel = { x: data[i][2], z: data[i][3] };
+        bm.mash.visible = true;
+    }
   }
 
   // ── Render loop ───────────────────────────────────────────────
 
-  private _animate(tank: ProtoTankMesh): void {
+  private _animate(): void {
     const loop = () => {
       this.animationId = requestAnimationFrame(loop);
 
@@ -237,17 +292,34 @@ export class SceneService {
         this.fpsLast    = now;
       }
 
-      // ── Lerp tank → server target ─────────────────────────────
-      tank.mash.position.lerp(this.targetPos, LERP_ALPHA);
-      // Use shortest-path lerp to avoid 360° flip artefact
-      tank.mash.rotation.y = lerpAngle(tank.mash.rotation.y, this.targetRotY, LERP_ALPHA);
-      tank.lerpTurretRotationY(this.targetTurretY, LERP_ALPHA);
+      // ── Lerp all players → server target ───────────────────────────
+      for (const [id, tank] of this.players.entries()) {
+          const target = this.targetPlayers.get(id);
+          if (target) {
+              tank.mash.position.lerp(target.pos, LERP_ALPHA);
+              tank.mash.rotation.y = lerpAngle(tank.mash.rotation.y, target.rotY, LERP_ALPHA);
+              tank.lerpTurretRotationY(target.turrY, LERP_ALPHA);
+          }
+      }
 
-      // ── Camera ────────────────────────────────────────────────
-      this.CameraService.followTurretPivot(
-        tank.getTurretWorldPosition(),
-        tank.getTurretWorldYaw(),
-      );
+      // ── Bullet Extrapolation (Butter Smooth 60FPS) ────────────────
+      // Bullets natively travel at `vel.x` per server tick (50ms). We run 60FPS (~16.6ms).
+      // So we apply 1/3 of the velocity per frame.
+      for (const bm of this.bulletMeshes) {
+          if (bm.mash.visible && (bm as any).vel) {
+              bm.mash.position.x += (bm as any).vel.x / 3;
+              bm.mash.position.z += (bm as any).vel.z / 3;
+          }
+      }
+
+      // ── Camera & Local HUD ───────────────────────────────────────
+      const localTank = this.players.get(this.localPlayerId);
+      if (localTank) {
+          this.CameraService.followTurretPivot(
+            localTank.getTurretWorldPosition(),
+            localTank.getTurretWorldYaw(),
+          );
+      }
 
       // ── HUD (throttled to 10 Hz to reduce CD overhead) ────────
       if (now - this.lastHudUpdate >= this.HUD_INTERVAL) {
@@ -259,10 +331,11 @@ export class SceneService {
           speed_kmh: this.lastState.speed_kmh,
           velocity:  this.lastState.velocity,
           at_wall:   this.lastState.at_wall,
+          reload:    this.lastState.reload,
           connected: this.wsStats.connected,
           pos: {
-            x: Math.round(tank.mash.position.x * 10) / 10,
-            z: Math.round(tank.mash.position.z * 10) / 10,
+            x: localTank ? Math.round(localTank.mash.position.x * 10) / 10 : 0,
+            z: localTank ? Math.round(localTank.mash.position.z * 10) / 10 : 0,
           },
         });
       }
@@ -284,7 +357,12 @@ export class SceneService {
     this.InputHandler.stopListening();
     this.WsService.disconnect();
     this.sceneObjects.forEach(o => o.dispose());
+    this.bulletMeshes.forEach(b => b.dispose());
+    this.players.forEach(p => p.dispose());
     this.sceneObjects = [];
+    this.bulletMeshes = [];
+    this.players.clear();
+    this.targetPlayers.clear();
   }
 
   // ── Helpers ────────────────────────────────────────────────────
