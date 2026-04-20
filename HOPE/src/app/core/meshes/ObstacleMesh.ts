@@ -9,6 +9,11 @@ export class ObstacleMesh {
 
     private readonly loader = new FBXLoader();
     private loadedModel?: THREE.Object3D;
+    private readonly obstacleMaterial = new THREE.MeshStandardMaterial({
+        color: 0x747b66,
+        roughness: 0.85,
+        metalness: 0.05,
+    });
 
     constructor(
         id: string,
@@ -68,6 +73,7 @@ export class ObstacleMesh {
             if (object instanceof THREE.Mesh) {
                 object.castShadow = true;
                 object.receiveShadow = true;
+                object.material = this.obstacleMaterial;
             }
         });
     }

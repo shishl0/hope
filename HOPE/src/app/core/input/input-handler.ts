@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { PlayerInput, ProtoTankInput } from './player-input';
+import { BulletInput, PlayerInput, ProtoTankInput } from './player-input';
 import { BehaviorSubject } from 'rxjs';
 
 @Injectable({
@@ -22,6 +22,14 @@ export class InputHandler {
 
   private protoTankInputStateSubject = new BehaviorSubject<ProtoTankInput>(this.createProtoTankInput());
   protoTankInputState$ = this.protoTankInputStateSubject.asObservable();
+
+  private bulletInputState: BulletInput = {
+    fire: false,
+    timestamp: Date.now(),
+  };
+  private bulletInputStateSubject = new BehaviorSubject<BulletInput>({ ...this.bulletInputState });
+  bulletInputState$ = this.bulletInputStateSubject.asObservable();
+  private bulletFireRequested = false;
 
   startListening(): void {
     window.addEventListener('keydown', this.handleKeyDown);
@@ -73,6 +81,15 @@ export class InputHandler {
           change = true;
         }
         break;
+      case 'Space':
+        if (!this.bulletInputState.fire) {
+          this.bulletInputState.fire = true;
+          this.bulletInputState.timestamp = Date.now();
+          this.bulletFireRequested = true;
+          this.bulletInputStateSubject.next({ ...this.bulletInputState });
+        }
+        event.preventDefault();
+        break;
     }
 
     if (change) {
@@ -123,6 +140,14 @@ export class InputHandler {
           change = true;
         }
         break;
+      case 'Space':
+        if (this.bulletInputState.fire) {
+          this.bulletInputState.fire = false;
+          this.bulletInputState.timestamp = Date.now();
+          this.bulletInputStateSubject.next({ ...this.bulletInputState });
+        }
+        event.preventDefault();
+        break;
     }
 
     if (change) {
@@ -147,6 +172,20 @@ export class InputHandler {
 
   getProtoTankInputObservable() {
     return this.protoTankInputState$;
+  }
+
+  getBulletSnapshot(): BulletInput {
+    return { ...this.bulletInputState };
+  }
+
+  getBulletInputObservable() {
+    return this.bulletInputState$;
+  }
+
+  consumeBulletFireRequest(): boolean {
+    const shouldFire = this.bulletFireRequested;
+    this.bulletFireRequested = false;
+    return shouldFire;
   }
 
   private createProtoTankInput(): ProtoTankInput {

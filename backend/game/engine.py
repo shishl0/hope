@@ -27,6 +27,10 @@ PROTO_TANK_MOVE_SPEED = 0.06
 PROTO_TANK_ROTATE_SPEED = 0.05
 PROTO_TANK_TURRET_ROTATE_SPEED = 0.02
 
+PROTO_BULLET_WORLD_HALF_SIZE = 50
+PROTO_BULLET_SPEED = 0.9
+PROTO_BULLET_SIZE = [0.18, 0.18, 0.18]
+
 def normalize_angle(angle):
     """Normalize angle to [-pi, pi]"""
     while angle > math.pi:
@@ -154,6 +158,89 @@ def calculate_proto_tank_move(data):
         'turretRotation': vector_to_dto(turret_rotation),
         'cannonRotation': vector_to_dto(cannon_rotation),
         'collided': collided,
+    }
+
+
+def normalize_vector(value):
+    length = math.sqrt(value[0] ** 2 + value[1] ** 2 + value[2] ** 2)
+    if length == 0:
+        return [0, 0, 1]
+
+    return [value[0] / length, value[1] / length, value[2] / length]
+
+
+def bullet_from_dto(value, fallback_id):
+    direction = normalize_vector(vector_from_dto(value.get('direction'), [0, 0, 1]))
+
+    return {
+        'id': value.get('id', fallback_id),
+        'position': vector_from_dto(value.get('position'), [0, 1, 0]),
+        'direction': direction,
+        'size': vector_from_dto(value.get('size'), PROTO_BULLET_SIZE),
+        'alive': bool(value.get('alive', True)),
+    }
+
+
+def calculate_proto_tank_bullets(data):
+    obstacles = {
+        obstacle.get('id', f'obstacle-{index}'): game_object_from_dto(obstacle, f'obstacle-{index}')
+        for index, obstacle in enumerate(data.get('obstacles', []))
+    }
+    bullets = [
+        bullet_from_dto(bullet, f'bullet-{index}')
+        for index, bullet in enumerate(data.get('bullets', []))
+        if bullet.get('alive', True)
+    ]
+
+    if data.get('fire', False):
+        muzzle_position = vector_from_dto(data.get('muzzlePosition'), [0, 1, 0])
+        muzzle_direction = normalize_vector(vector_from_dto(data.get('muzzleDirection'), [0, 0, 1]))
+        bullets.append({
+            'id': data.get('newBulletId', f'bullet-{time.time()}'),
+            'position': muzzle_position,
+            'direction': muzzle_direction,
+            'size': PROTO_BULLET_SIZE[:],
+            'alive': True,
+        })
+
+    active_bullets = []
+    hits = []
+
+    for bullet in bullets:
+        next_bullet = deepcopy(bullet)
+        next_bullet['position'][0] += next_bullet['direction'][0] * PROTO_BULLET_SPEED
+        next_bullet['position'][1] += next_bullet['direction'][1] * PROTO_BULLET_SPEED
+        next_bullet['position'][2] += next_bullet['direction'][2] * PROTO_BULLET_SPEED
+
+        out_of_world = (
+            abs(next_bullet['position'][0]) > PROTO_BULLET_WORLD_HALF_SIZE or
+            abs(next_bullet['position'][2]) > PROTO_BULLET_WORLD_HALF_SIZE or
+            next_bullet['position'][1] < 0 or
+            next_bullet['position'][1] > PROTO_BULLET_WORLD_HALF_SIZE
+        )
+        hit_obstacle = object_collides(next_bullet, obstacles)
+
+        if out_of_world or hit_obstacle:
+            hits.append({
+                'bulletId': next_bullet['id'],
+                'type': 'world' if out_of_world else 'obstacle',
+            })
+            continue
+
+        active_bullets.append(next_bullet)
+
+    return {
+        'bullets': [
+            {
+                'id': bullet['id'],
+                'position': vector_to_dto(bullet['position']),
+                'direction': vector_to_dto(bullet['direction']),
+                'size': vector_to_dto(bullet['size']),
+                'alive': bullet['alive'],
+            }
+            for bullet in active_bullets
+        ],
+        'hits': hits,
     }
 
 class GameRoom:

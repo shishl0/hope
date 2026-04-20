@@ -43,6 +43,7 @@ class PlayerProfile(models.Model):
 
 class Arena(models.Model):
     name = models.CharField(max_length=100)
+    modelKey = models.CharField(max_length=100, default='default_arena')
     description = models.TextField(blank=True, null=True)
 
     def __str__(self):
@@ -52,6 +53,7 @@ class Arena(models.Model):
 class Obstacle(models.Model):
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE, related_name='obstacles')
     type = models.CharField(max_length=50) # e.g. Box, Wall
+    modelKey = models.CharField(max_length=100, default='default_obstacle')
     x = models.FloatField()
     y = models.FloatField()
     z = models.FloatField()

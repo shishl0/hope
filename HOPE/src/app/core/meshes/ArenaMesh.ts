@@ -6,6 +6,11 @@ export class ArenaMesh {
 
     private readonly loader = new FBXLoader();
     private loadedModel?: THREE.Object3D;
+    private readonly groundMaterial = new THREE.MeshStandardMaterial({
+        color: 0x4f7f45,
+        roughness: 0.9,
+        metalness: 0,
+    });
 
     constructor(
         private readonly modelPath = '/3d_Models/arena-1.fbx',
@@ -55,6 +60,7 @@ export class ArenaMesh {
             if (object instanceof THREE.Mesh) {
                 object.castShadow = false;
                 object.receiveShadow = true;
+                object.material = this.groundMaterial;
             }
         });
     }

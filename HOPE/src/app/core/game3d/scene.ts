@@ -12,10 +12,11 @@ import { ProtoTankWsService, WsStats } from '../game-network/proto-tank-ws.servi
 import { ProtoTankMoveResponseDto } from '../game-network/player-state-dto';
 
 import { ArenaMesh } from '../meshes/ArenaMesh';
+import { BulletMesh } from '../meshes/bullet.Mesh';
 import { ObstacleMesh } from '../meshes/ObstacleMesh';
 import { ProtoTankMesh } from '../meshes/protoTank.mes';
 
-type SceneMesh = ArenaMesh | ObstacleMesh | ProtoTankMesh;
+type SceneMesh = ArenaMesh | ObstacleMesh | ProtoTankMesh | BulletMesh;
 
 /** Per-frame Lerp factor. */
 const LERP_ALPHA = 0.15;
