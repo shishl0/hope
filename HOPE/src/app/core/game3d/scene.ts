@@ -9,7 +9,6 @@ import { LightService } from './light';
 import { InputHandler } from '../input/input-handler';
 import { PlayerInput } from '../input/player-input';
 import { GameNetworkHandler } from '../game-network/game-network-handler';
-import { PlayerStateDto } from '../game-network/player-state-dto';
 
 import { CubeMesh } from '../meshes/cube.mesh';
 
@@ -23,7 +22,7 @@ export class SceneService {
   private canvas?: HTMLCanvasElement;
   private resizeObserver?: ResizeObserver;
   private inputSubscription?: Subscription;
-  private cube?: CubeMesh;
+  private sceneObjects: CubeMesh[] = [];
   private requestInFlight = false;
   private inputState: PlayerInput = {
     forward: false,
@@ -77,10 +76,20 @@ export class SceneService {
     this.greedHelperTurn();
     this.initLigt();
 
-    
-    // Example: Add a simple cube to the scene
-    this.cube = new CubeMesh();
-    this.cube.addtoScene(this.scene);
+    const cube = new CubeMesh('player', 0x00ff00, new THREE.Vector3(1, 1, 1));
+    cube.mash.position.set(0, 0.5, 0);
+    cube.addtoScene(this.scene);
+
+    const obstacle = new CubeMesh('obstacle-1', 0x888888, new THREE.Vector3(2, 1, 2));
+    obstacle.mash.position.set(0, 0.5, 5);
+    obstacle.addtoScene(this.scene);
+
+    const obstacle2 = new CubeMesh('obstacle-2', 0x888888, new THREE.Vector3(2, 1, 2));
+    obstacle2.mash.position.set(4, 0.5, 2);
+    obstacle2.addtoScene(this.scene);
+
+    const obstacles = [obstacle, obstacle2];
+    this.sceneObjects = [cube, ...obstacles];
 
     // input handling example
     this.InputHandler.startListening();
@@ -88,12 +97,7 @@ export class SceneService {
       this.inputState = inputState;
     });
 
-    this.GameNetworkHandler.getPlayerState().subscribe({
-      next: state => this.applyServerState(state),
-      error: error => console.error('Could not load player state:', error),
-    });
-
-    this.animate();
+    this.animate(cube, obstacles);
 
     window.addEventListener('resize', this.handleWindowResize);
     this.resizeObserver = new ResizeObserver(() => this.onWindowResize());
@@ -107,10 +111,10 @@ export class SceneService {
     }
   }
 
-  private animate(): void {
+  private animate(cube: CubeMesh, obstacles: CubeMesh[]): void {
 
     const loop = (frameTime: number) => {
-      this.syncCubeWithBackend();
+      this.syncCubeWithBackend(cube, obstacles);
       this.resizeCanvasIfNeeded();
 
       // Render the scene
@@ -132,7 +136,8 @@ export class SceneService {
     this.resizeObserver?.disconnect();
     this.inputSubscription?.unsubscribe();
     this.InputHandler.stopListening();
-    this.cube?.dispose();
+    this.sceneObjects.forEach(object => object.dispose());
+    this.sceneObjects = [];
     console.log('Stopping scene and cleaning up resources.');
   }
 
@@ -152,15 +157,22 @@ export class SceneService {
     }
   }
 
-  private syncCubeWithBackend(): void {
-    if (!this.cube || this.requestInFlight || !this.hasMovementInput()) {
+  private syncCubeWithBackend(cube: CubeMesh, obstacles: CubeMesh[]): void {
+    if (this.requestInFlight || !this.hasMovementInput()) {
       return;
     }
 
     this.requestInFlight = true;
 
-    this.GameNetworkHandler.sendPlayerInput(this.inputState).subscribe({
-      next: state => this.applyServerState(state),
+    this.GameNetworkHandler.sendPlayerInput({
+      ...this.inputState,
+      player: cube.toCollisionDto(),
+      obstacles: obstacles.map(obstacle => obstacle.toCollisionDto()),
+    }).subscribe({
+      next: state => {
+        cube.applyMoveResponse(state);
+        this.CameraService.follow(cube.mash.position);
+      },
       error: error => {
         console.error('Could not sync player input:', error);
         this.requestInFlight = false;
@@ -169,17 +181,6 @@ export class SceneService {
         this.requestInFlight = false;
       },
     });
-  }
-
-  private applyServerState(state: PlayerStateDto): void {
-    if (!this.cube) {
-      return;
-    }
-
-    const mesh = this.cube.mash;
-    mesh.position.set(state.position.x, state.position.y, state.position.z);
-    mesh.rotation.set(state.rotation.x, state.rotation.y, state.rotation.z);
-    this.CameraService.follow(mesh.position);
   }
 
   private hasMovementInput(): boolean {

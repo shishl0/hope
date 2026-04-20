@@ -1,19 +1,11 @@
 from django.shortcuts import render
-import math
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from .engine import calculate_cube_move
 from .models import Tank, PlayerProfile, Arena, Lobby, LobbyPlayer
 from .serializers import TankSerializer, ArenaSerializer, PlayerProfileSerializer, LobbyStatusSerializer
-
-PLAYER_STATE = {
-    'position': [0, 0, 0],
-    'rotation': [0, 0, 0],
-}
-
-MOVE_SPEED = 0.5
-ROTATE_SPEED = 0.1
 
 # 0. Test Game View
 def test_game_view(request):
@@ -72,44 +64,6 @@ def active_lobbies(request):
     return Response(serializer.data)
 
 
-def get_player_state_response():
-    return {
-        'position': {
-            'x': PLAYER_STATE['position'][0],
-            'y': PLAYER_STATE['position'][1],
-            'z': PLAYER_STATE['position'][2],
-        },
-        'rotation': {
-            'x': PLAYER_STATE['rotation'][0],
-            'y': PLAYER_STATE['rotation'][1],
-            'z': PLAYER_STATE['rotation'][2],
-        },
-    }
-
-
-@api_view(['GET', 'POST'])
+@api_view(['POST'])
 def object_move(request):
-    if request.method == 'GET':
-        return Response(get_player_state_response())
-
-    forward = request.data.get('forward', False)
-    backward = request.data.get('backward', False)
-    rotate_left = request.data.get('rotateLeft', request.data.get('rotateleft', False))
-    rotate_right = request.data.get('rotateRight', request.data.get('rotateright', False))
-
-    if rotate_left:
-        PLAYER_STATE['rotation'][1] -= ROTATE_SPEED
-    if rotate_right:
-        PLAYER_STATE['rotation'][1] += ROTATE_SPEED
-
-    dir_x = math.sin(PLAYER_STATE['rotation'][1])
-    dir_z = math.cos(PLAYER_STATE['rotation'][1])
-
-    if forward:
-        PLAYER_STATE['position'][0] += dir_x * MOVE_SPEED
-        PLAYER_STATE['position'][2] += dir_z * MOVE_SPEED
-    if backward:
-        PLAYER_STATE['position'][0] -= dir_x * MOVE_SPEED
-        PLAYER_STATE['position'][2] -= dir_z * MOVE_SPEED
-
-    return Response(get_player_state_response())
+    return Response(calculate_cube_move(request.data))

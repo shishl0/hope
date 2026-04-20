@@ -1,8 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { PlayerInput } from '../input/player-input';
-import { PlayerStateDto } from './player-state-dto';
+import { MoveRequestDto, MoveResponseDto } from './player-state-dto';
 
 @Injectable({
   providedIn: 'root',
@@ -13,12 +12,8 @@ export class GameNetworkHandler {
 
   constructor(private http: HttpClient) {}
 
-  sendPlayerInput(input: PlayerInput): Observable<PlayerStateDto> {
-    return this.http.post<PlayerStateDto>(this.serverUrl, input);
-  }
-
-  getPlayerState(): Observable<PlayerStateDto> {
-    return this.http.get<PlayerStateDto>(this.serverUrl);
+  sendPlayerInput(input: MoveRequestDto): Observable<MoveResponseDto> {
+    return this.http.post<MoveResponseDto>(this.serverUrl, input);
   }
 
 }

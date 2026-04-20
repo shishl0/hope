@@ -2,6 +2,9 @@ import asyncio
 import time
 import math
 import random
+from copy import deepcopy
+
+from .collision import clamp_to_world, object_collides
 
 TPS = 30
 TICK_INTERVAL = 1.0 / TPS
@@ -10,10 +13,14 @@ MAP_HEIGHT = 2000
 TANK_RADIUS = 15
 BULLET_SIZE = 5
 
-MAX_SPEED_FWD = 150
-MAX_SPEED_BWD = 75
-HULL_ROTATION_SPEED = 2.0
-TURRET_ROTATION_SPEED = 1.5
+MAX_SPEED_FWD = 1.5
+MAX_SPEED_BWD = 7.5
+HULL_ROTATION_SPEED = 0.20
+TURRET_ROTATION_SPEED = 0.15
+
+CUBE_WORLD_HALF_SIZE = 50
+CUBE_MOVE_SPEED = 0.1
+CUBE_ROTATE_SPEED = 0.1
 
 def normalize_angle(angle):
     """Normalize angle to [-pi, pi]"""
@@ -22,6 +29,75 @@ def normalize_angle(angle):
     while angle < -math.pi:
         angle += 2 * math.pi
     return angle
+
+
+def vector_from_dto(value, fallback):
+    if not isinstance(value, dict):
+        return fallback[:]
+
+    return [
+        float(value.get('x', fallback[0])),
+        float(value.get('y', fallback[1])),
+        float(value.get('z', fallback[2])),
+    ]
+
+
+def vector_to_dto(value):
+    return {
+        'x': value[0],
+        'y': value[1],
+        'z': value[2],
+    }
+
+
+def game_object_from_dto(value, fallback_id='object'):
+    return {
+        'id': value.get('id', fallback_id),
+        'position': vector_from_dto(value.get('position'), [0, 0.5, 0]),
+        'rotation': vector_from_dto(value.get('rotation'), [0, 0, 0]),
+        'size': vector_from_dto(value.get('size'), [1, 1, 1]),
+    }
+
+
+def calculate_cube_move(data):
+    player = game_object_from_dto(data.get('player', {}), 'player')
+    obstacles = {
+        obstacle.get('id', f'obstacle-{index}'): game_object_from_dto(obstacle, f'obstacle-{index}')
+        for index, obstacle in enumerate(data.get('obstacles', []))
+    }
+
+    next_player = deepcopy(player)
+
+    if data.get('rotateLeft', False):
+        next_player['rotation'][1] += CUBE_ROTATE_SPEED
+    if data.get('rotateRight', False):
+        next_player['rotation'][1] -= CUBE_ROTATE_SPEED
+
+    next_player['rotation'][1] = normalize_angle(next_player['rotation'][1])
+
+    move_direction = int(data.get('forward', False)) - int(data.get('backward', False))
+    if move_direction != 0:
+        dir_x = math.sin(next_player['rotation'][1])
+        dir_z = math.cos(next_player['rotation'][1])
+        distance = move_direction * CUBE_MOVE_SPEED
+
+        next_player['position'][0] += dir_x * distance
+        next_player['position'][2] += dir_z * distance
+        next_player['position'] = clamp_to_world(
+            next_player['position'],
+            CUBE_WORLD_HALF_SIZE,
+            next_player['size'],
+        )
+
+    collided = object_collides(next_player, obstacles)
+    if collided:
+        next_player['position'] = player['position']
+
+    return {
+        'position': vector_to_dto(next_player['position']),
+        'rotation': vector_to_dto(next_player['rotation']),
+        'collided': collided,
+    }
 
 class GameRoom:
     def __init__(self, lobby_id, channel_layer):
