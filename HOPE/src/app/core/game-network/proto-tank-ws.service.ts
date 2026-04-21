@@ -41,6 +41,7 @@ export class ProtoTankWsService implements OnDestroy {
   // ─────────────────────────────────────────────────────────────
 
   connect(): void {
+    this.destroyed = false;
     if (this.destroyed) return;
     if (this.socket?.readyState === WebSocket.OPEN) return;
 
@@ -86,7 +87,7 @@ export class ProtoTankWsService implements OnDestroy {
     turretLeft: boolean; turretRight: boolean;
     fire: boolean;
   }): void {
-    this.send({ type: 'input', ...input });
+    this._send({ type: 'input', ...input });
   }
 
   disconnect(): void {
@@ -95,13 +96,14 @@ export class ProtoTankWsService implements OnDestroy {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.close();
     this.socket = null;
+    this.stats$.next({ ping: 0, tps: 0, connected: false });
   }
 
   ngOnDestroy(): void { this.disconnect(); }
 
   // ── Internal ────────────────────────────────────────────────
 
-  send(data: object): void {
+  private _send(data: object): void {
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify(data));
     }
@@ -110,7 +112,7 @@ export class ProtoTankWsService implements OnDestroy {
   private _startPingLoop(): void {
     this.pingInterval = setInterval(() => {
       this.pingSentAt = Date.now();
-    this.send({ type: 'ping', client_time: this.pingSentAt });
+      this._send({ type: 'ping', client_time: this.pingSentAt });
     }, 1000);
   }
 

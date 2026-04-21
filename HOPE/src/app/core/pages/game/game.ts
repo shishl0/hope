@@ -18,7 +18,6 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     speed_kmh: 0, velocity: 0,
     at_wall: false, reload: 0, connected: false,
     pos: { x: 0, z: 0 },
-    hp: 100, dead: false,
   });
 
   private hudSub?: Subscription;
