@@ -39,11 +39,54 @@ canvas {
 .badge-ok  { background: rgba(0, 200, 80, 0.25); color: #40ff80; border: 1px solid #20a050; }
 .badge-err { background: rgba(255, 60, 60, 0.25); color: #ff6060; border: 1px solid #a03030; }
 
+/* ── HP Indicator (top-center) ─────────────────────────────── */
+
+.hud-hp {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 300px;
+}
+
+.hp-lbl {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-shadow: 0 0 4px rgba(0,0,0,0.8);
+}
+
+.hp-lbl .dead { color: #ff3333; text-shadow: 0 0 10px rgba(255, 50, 50, 0.8); }
+
+.hp-bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(220, 30, 30, 0.4); /* Missing HP is red */
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+.hp-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #108030, #40ff80); /* Active HP is Green */
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.hp-bar-fill.bar-low {
+  background: linear-gradient(90deg, #aa0000, #ff3333);
+}
+
 /* ── Speedometer (bottom-centre) ─────────────────────────────── */
 
 .hud-speed {
   position: absolute;
-  bottom: 20px;
+  bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

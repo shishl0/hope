@@ -8,6 +8,22 @@
     {{ hud().connected ? '● WS' : '○ WS' }}
   </div>
 
+  <!-- Tank HP (top-center) -->
+  <div class="hud-hp">
+    <div class="hp-lbl">
+      @if (hud().dead) {
+        <span class="dead">ТАНК УНИЧТОЖЕН</span>
+      } @else {
+        <span>ПРОЧНОСТЬ: {{ hud().hp }}%</span>
+      }
+    </div>
+    <div class="hp-bar-track">
+      <div class="hp-bar-fill"
+           [style.width.%]="hud().hp"
+           [class.bar-low]="hud().hp <= 25"></div>
+    </div>
+  </div>
+
   <!-- Reload Indicator -->
   <div class="hud-reload">
     <div class="reload-lbl">
