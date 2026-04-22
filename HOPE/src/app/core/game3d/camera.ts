@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 @Injectable({
   providedIn: 'root',
@@ -7,16 +8,38 @@ import * as THREE from 'three';
 export class CameraService {
 
   private camera!: THREE.PerspectiveCamera;
+  private orbitControls?: OrbitControls;
+  public devModeCamera = false;
+
   private followOffset: THREE.Vector3 = new THREE.Vector3(0, 5, -10);
   private turretFollowHeight = 5;
-  private turretFollowDistance = 10;
+  private turretFollowDistance = 14;
   private lerpAlpha: number = 0.1;
 
-  init(aspect: number): THREE.PerspectiveCamera {
+  init(aspect: number, domElement?: HTMLElement): THREE.PerspectiveCamera {
     this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 2000);
     this.camera.position.set(0, 1.5, 2.1);
     this.camera.rotateX(-0.3); // Slightly tilt the camera downwards
+
+    if (domElement) {
+      this.orbitControls = new OrbitControls(this.camera, domElement);
+      this.orbitControls.enabled = false; // Disabled by default
+    }
+
     return this.camera;
+  }
+
+  setDevMode(enabled: boolean): void {
+    this.devModeCamera = enabled;
+    if (this.orbitControls) {
+      this.orbitControls.enabled = enabled;
+    }
+  }
+
+  updateControls(): void {
+    if (this.devModeCamera && this.orbitControls) {
+      this.orbitControls.update();
+    }
   }
 
   getCamera(): THREE.PerspectiveCamera {
@@ -34,6 +57,7 @@ export class CameraService {
   }
 
   follow(targetPosition: THREE.Vector3): void {
+    if (this.devModeCamera) return;
     if (!this.camera) {
       console.warn('Camera not initialized yet. Call init() before following a target.');
       return;
@@ -51,6 +75,7 @@ export class CameraService {
   }
 
   followTurretPivot(turretPosition: THREE.Vector3, turretYaw: number): void {
+    if (this.devModeCamera) return;
     if (!this.camera) {
       console.warn('Camera not initialized yet. Call init() before following a turret.');
       return;
@@ -65,11 +90,16 @@ export class CameraService {
     const lookTarget = turretPosition.clone();
     lookTarget.y += 0.4;
 
-    this.camera.position.lerp(desiredPosition, this.lerpAlpha);
+    // If too far (teleport/spawn), snap immediately to prevent "flying camera"
+    if (this.camera.position.distanceTo(desiredPosition) > 20) {
+      this.camera.position.copy(desiredPosition);
+    } else {
+      this.camera.position.lerp(desiredPosition, this.lerpAlpha);
+    }
     this.camera.lookAt(lookTarget);
   }
 
-  onResize ( aspect: number ): void {
+  onResize(aspect: number): void {
     if (this.camera) {
       this.camera.aspect = aspect;
       this.camera.updateProjectionMatrix();

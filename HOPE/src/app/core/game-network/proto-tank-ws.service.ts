@@ -14,7 +14,13 @@ export interface WsStats {
 export class ProtoTankWsService implements OnDestroy {
   private socket: WebSocket | null = null;
   private sessionId = 'session1';
-  private readonly wsUrl = `ws://127.0.0.1:8001/ws/proto-tank/${this.sessionId}/`;
+  private get wsUrl(): string {
+    return `ws://127.0.0.1:8001/ws/proto-tank/${this.sessionId}/`;
+  }
+
+  setSessionId(id: string): void {
+    this.sessionId = id;
+  }
 
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly reconnectDelay = 2000;
@@ -88,6 +94,14 @@ export class ProtoTankWsService implements OnDestroy {
     fire: boolean;
   }): void {
     this._send({ type: 'input', ...input });
+  }
+
+  sendChangeTank(tankType: string): void {
+    this._send({ type: 'change_tank', tank_type: tankType });
+  }
+
+  sendChangeMode(mode: 'ffa' | 'team'): void {
+    this._send({ type: 'change_mode', mode });
   }
 
   disconnect(): void {

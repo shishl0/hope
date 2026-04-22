@@ -1,5 +1,5 @@
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { LobbyService } from '../../core/services/lobby.service';
 import { TankService } from '../../core/services/tank.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -8,12 +8,16 @@ import { Tank } from '../../models/tank';
 
 @Component({
   selector: 'app-lobby',
-  imports: [RouterLink],
+  imports: [RouterLink, RouterLinkActive],
   template: `
     <main class="screen command-screen">
       <nav class="topbar">
-        <a routerLink="/profile">Профиль</a>
-        <strong>Лобби</strong>
+        <div class="topnav">
+          <a routerLink="/profile" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Профиль</a>
+          <a routerLink="/garage" routerLinkActive="active">Танки</a>
+          <a routerLink="/lobby" routerLinkActive="active">Лобби</a>
+          <a routerLink="/friends" routerLinkActive="active">Друзья</a>
+        </div>
         <button class="button small primary" (click)="createLobby()">Создать комнату</button>
       </nav>
 
@@ -39,8 +43,8 @@ import { Tank } from '../../models/tank';
           </div>
 
           <div class="side-switch">
-            <button class="button" (click)="setSide('allies')">СССР</button>
-            <button class="button" (click)="setSide('axis')">Немцы</button>
+            <button class="button" [class.is-selected]="selectedSide() === 'allies'" (click)="setSide('allies')">Красные</button>
+            <button class="button" [class.is-selected]="selectedSide() === 'axis'" (click)="setSide('axis')">Синие</button>
           </div>
 
           <div class="lobby-tank-select">
@@ -62,7 +66,7 @@ import { Tank } from '../../models/tank';
 
           <div class="teams-grid">
             <section class="team-panel">
-              <h2>СССР</h2>
+              <h2 style="color: #ff4444">Красные</h2>
               <div class="team-slots">
                 @for (slot of teamSlots('allies'); track $index) {
                   <div class="player-slot" [class.empty]="!slot">
@@ -81,7 +85,7 @@ import { Tank } from '../../models/tank';
             </section>
 
             <section class="team-panel">
-              <h2>Немцы</h2>
+              <h2 style="color: #4444ff">Синие</h2>
               <div class="team-slots">
                 @for (slot of teamSlots('axis'); track $index) {
                   <div class="player-slot" [class.empty]="!slot">
@@ -109,6 +113,7 @@ export class LobbyComponent implements OnInit, OnDestroy {
   currentLobby = signal<Lobby | null>(null);
   tanks = signal<Tank[]>([]);
   selectedTankId = signal<number | null>(null);
+  selectedSide = signal<'allies' | 'axis'>('allies');
   private pollId?: number;
   private enteringGame = false;
 
@@ -123,10 +128,12 @@ export class LobbyComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.tankApi.getTanks().subscribe((tanks) => this.tanks.set(tanks));
     this.auth.loadProfile().subscribe((profile) => {
-      this.selectedTankId.set(profile.selectedTank?.id || null);
+      this.selectedTankId.set(profile?.selectedTank?.id || null);
     });
     const id = Number(this.route.snapshot.paramMap.get('id'));
     if (id) {
+      // If we already have the ID, we just start polling/loading. 
+      // Joining is handled by the initial click or by this load.
       this.loadLobby(id);
       this.pollId = window.setInterval(() => this.loadLobby(id), 3000);
     } else {
@@ -179,6 +186,7 @@ export class LobbyComponent implements OnInit, OnDestroy {
   setSide(side: 'allies' | 'axis'): void {
     const id = this.currentLobby()?.id;
     if (!id) return;
+    this.selectedSide.set(side);
     this.lobbyApi.setSide(id, side).subscribe((lobby) => this.setCurrentLobby(lobby));
   }
 
@@ -187,18 +195,40 @@ export class LobbyComponent implements OnInit, OnDestroy {
   }
 
   sideLabel(side: 'allies' | 'axis'): string {
-    return side === 'axis' ? 'Немцы' : 'СССР';
+    return side === 'axis' ? 'Синие' : 'Красные';
   }
 
   selectTank(tankId: number): void {
-    this.tankApi.selectTank(tankId).subscribe(() => {
+    this.tankApi.selectTank(tankId).subscribe((profile) => {
       this.selectedTankId.set(tankId);
+      this.auth.profile.set(profile);
       const id = this.currentLobby()?.id;
       if (id) this.loadLobby(id);
     });
   }
 
+  enterLobby(id: number): void {
+    // Only used for initial programmatic entry if needed
+    this.lobbyApi.join(id, this.selectedSide()).subscribe({
+      next: (lobby) => {
+        this.setCurrentLobby(lobby);
+        if (this.pollId) window.clearInterval(this.pollId);
+        this.pollId = window.setInterval(() => this.loadLobby(id), 3000);
+      },
+      error: () => {
+        this.currentLobby.set(null);
+        this.router.navigate(['/lobby']);
+      },
+    });
+  }
+
   private setCurrentLobby(lobby: Lobby): void {
     this.currentLobby.set(lobby);
+    const currentNickname = this.auth.profile()?.nickname;
+    const ownPlayer = lobby.players.find((player) => player.nickname === currentNickname);
+    if (ownPlayer) {
+        this.selectedSide.set(ownPlayer.side);
+        if (ownPlayer.selectedTank) this.selectedTankId.set(ownPlayer.selectedTank.id);
+    }
   }
 }

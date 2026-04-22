@@ -2,6 +2,7 @@ import { Tank } from './tank';
 
 export interface PlayerProfile {
   id: number;
+  userId: number;
   publicId: string;
   nickname: string;
   selectedTank?: Tank | null;

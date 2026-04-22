@@ -57,36 +57,34 @@ export class LightService {
   } 
 
   createSunLight(scene: THREE.Scene): void {
+    // Sky/ground ambient fill — deep golden sky top, warm earthy bottom
+    scene.add(this.createHemisphereLight(0xfff5e0, 0x4a3728, 1.5));
 
-    // Sky/ground ambient fill — deep sky blue top, warm earthy bottom
-    scene.add(this.createHemisphereLight(0x9dc8e8, 0x4a3728, 1.2));
-
-    // Main sun — bright warm directional with high-res shadows
-    this.sunLight = this.createDirectionalLight(0xfff5e0, 3.5, new THREE.Vector3(50, 80, 40));
-    this.sunLight.target.position.set(0, 0, 0);
+    // Main sun — very bright warm golden directional
+    this.sunLight = this.createDirectionalLight(0xffe4b0, 4.0, new THREE.Vector3(60, 90, 50));
+    this.sunLight.target.position.set(-10, 0, -10); // Targeted at world center
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width  = 1024;
-    this.sunLight.shadow.mapSize.height = 1024;
+    this.sunLight.shadow.mapSize.width  = 2048;
+    this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near   = 0.5;
-    this.sunLight.shadow.camera.far    = 300;
-    this.sunLight.shadow.camera.left   = -80;
-    this.sunLight.shadow.camera.right  =  80;
-    this.sunLight.shadow.camera.top    =  80;
-    this.sunLight.shadow.camera.bottom = -80;
-    this.sunLight.shadow.bias = -0.0003;
+    this.sunLight.shadow.camera.far    = 400;
+    this.sunLight.shadow.camera.left   = -150;
+    this.sunLight.shadow.camera.right  =  150;
+    this.sunLight.shadow.camera.top    =  150;
+    this.sunLight.shadow.camera.bottom = -150;
+    this.sunLight.shadow.bias = -0.0005;
     scene.add(this.sunLight);
     scene.add(this.sunLight.target);
 
-    // Warm fill light from the opposite side — softens harsh shadows
-    const fillLight = this.createDirectionalLight(0xffe4b0, 1.0, new THREE.Vector3(-40, 30, -30));
-    scene.add(fillLight);
+    const backFill = this.createDirectionalLight(0xffe4b0, 1.0, new THREE.Vector3(-10, 5, -10));
+    const sideFill = this.createDirectionalLight(0xffcc88, 1.5, new THREE.Vector3(15, 8, 5));
+    scene.add(backFill, sideFill);
 
-    // Cool rim/back light for depth and silhouette separation
-    const rimLight = this.createDirectionalLight(0x9bc8ff, 0.6, new THREE.Vector3(-10, 10, -50));
+    // Cool rim light for depth
+    const rimLight = this.createDirectionalLight(0x88ccff, 0.8, new THREE.Vector3(-10, 10, -50));
     scene.add(rimLight);
 
-    // Subtle ambient so no surface is completely black
-    scene.add(this.createAmbientLight(0xffffff, 0.18));
+    scene.add(this.createAmbientLight(0xffffff, 0.2));
   }
 
   updateSunLightPosition(position: THREE.Vector3): void {

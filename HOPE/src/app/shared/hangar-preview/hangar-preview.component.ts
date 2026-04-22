@@ -11,36 +11,44 @@ import {
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { Tank } from '../../models/tank';
+import { T34TankMesh } from '../../core/meshes/t34Tank.mesh';
+import { Pz4TankMesh } from '../../core/meshes/pz4Tank.mesh';
 
 @Component({
   selector: 'app-hangar-preview',
-  template: `<canvas #canvas class="hangar-canvas"></canvas>`,
+  template: `
+    <div class="hangar-container" #container>
+      <canvas #canvas class="hangar-canvas"></canvas>
+    </div>
+  `,
 })
 export class HangarPreviewComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() tank?: Tank | null;
 
   canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
+  containerRef = viewChild<ElementRef<HTMLDivElement>>('container');
 
   private renderer?: THREE.WebGLRenderer;
   private scene?: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
   private animationId = 0;
-  private tankGroup = new THREE.Group();
-  private loader = new FBXLoader();
+  private currentTankMesh?: T34TankMesh | Pz4TankMesh;
   private resizeObserver?: ResizeObserver;
   private startedAt = performance.now();
+  private lastLoadedTankId?: number;
 
   ngAfterViewInit(): void {
     const canvas = this.canvasRef()?.nativeElement;
-    if (!canvas) return;
+    const container = this.containerRef()?.nativeElement;
+    if (!canvas || !container) return;
 
     this.scene = new THREE.Scene();
     this.scene.background = null;
-    this.scene.fog = new THREE.Fog(0x081109, 14, 42);
+    this.scene.fog = new THREE.Fog(0x1a1c12, 10, 35); // Slightly warmer/closer fog
 
-    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 80);
-    this.camera.position.set(4.2, 2.45, 6.1);
-    this.camera.lookAt(0, 1.05, 0);
+    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+    this.camera.position.set(4.8, 2.8, 6.5);
+    this.camera.lookAt(0, 1.2, 0);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -48,12 +56,11 @@ export class HangarPreviewComponent implements AfterViewInit, OnChanges, OnDestr
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.buildHangar();
-    this.scene.add(this.tankGroup);
     this.loadSelectedTank();
 
     this.resize();
     this.resizeObserver = new ResizeObserver(() => this.resize());
-    this.resizeObserver.observe(canvas);
+    this.resizeObserver.observe(container);
     this.animate();
   }
 
@@ -64,21 +71,26 @@ export class HangarPreviewComponent implements AfterViewInit, OnChanges, OnDestr
   ngOnDestroy(): void {
     cancelAnimationFrame(this.animationId);
     this.resizeObserver?.disconnect();
-    this.disposeGroup(this.tankGroup);
+    this.currentTankMesh?.dispose();
     this.renderer?.dispose();
   }
 
   private buildHangar(): void {
     if (!this.scene) return;
 
-    const ambient = new THREE.HemisphereLight(0xbfd979, 0x07110b, 1.5);
+    const ambient = new THREE.HemisphereLight(0xfff5e0, 0x07110b, 1.8); // Golden sky
     this.scene.add(ambient);
 
-    const key = new THREE.DirectionalLight(0xf2ffd9, 2.2);
-    key.position.set(4, 8, 5);
+    const key = new THREE.DirectionalLight(0xffe4b0, 3.5); // Warm golden sun
+    key.position.set(6, 12, 8);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.bias = -0.0005;
     this.scene.add(key);
+
+    const fill = new THREE.PointLight(0xffaa44, 25, 20); // Warm secondary glow
+    fill.position.set(-5, 4, 3);
+    this.scene.add(fill);
 
     const lampMaterial = new THREE.MeshBasicMaterial({ color: 0xcce888 });
     for (const x of [-5, 0, 5]) {
@@ -123,33 +135,32 @@ export class HangarPreviewComponent implements AfterViewInit, OnChanges, OnDestr
   }
 
   private loadSelectedTank(): void {
-    this.disposeGroup(this.tankGroup);
-    this.tankGroup.clear();
+    if (!this.scene) return;
+    
+    const tankId = this.tank?.id;
+    if (tankId === this.lastLoadedTankId && this.currentTankMesh) return;
+    this.lastLoadedTankId = tankId;
 
-    const bodyKey = this.tank?.bodyModelKey || 't-34-body';
-    const turretKey = this.tank?.turretModelKey || 't-34-tower';
-    const tankMaterial = new THREE.MeshStandardMaterial({
-      color: this.tank?.side === 'Germany' ? 0x596049 : 0x556f3a,
-      roughness: 0.82,
-      metalness: 0.12,
-    });
+    if (this.currentTankMesh) {
+      this.currentTankMesh.removeFromScene(this.scene);
+      this.currentTankMesh.dispose();
+      this.currentTankMesh = undefined;
+    }
 
-    this.loader.load(`/3d_Models/${bodyKey}.fbx`, (body) => {
-      this.prepareModel(body, tankMaterial);
-      this.fitModel(body, 5.8);
-      body.position.y = 0.38;
-      this.tankGroup.add(body);
-    });
+    const tankName = this.tank?.name || '';
+    const side = this.tank?.side || '';
+    const isAxis = side === 'Germany' || tankName.toLowerCase().includes('pz') || tankName.toLowerCase().includes('panzer');
+    const color = isAxis ? 0x4444ff : 0xff4444;
 
-    this.loader.load(`/3d_Models/${turretKey}.fbx`, (turret) => {
-      this.prepareModel(turret, tankMaterial.clone());
-      this.fitModel(turret, 2.45);
-      turret.position.set(0, 1.68, 0.08);
-      this.tankGroup.add(turret);
-    });
+    if (isAxis) {
+      this.currentTankMesh = new Pz4TankMesh('preview', color, this.tank?.name);
+    } else {
+      this.currentTankMesh = new T34TankMesh('preview', color, this.tank?.name);
+    }
 
-    this.tankGroup.position.set(-0.25, 0.08, 0.7);
-    this.tankGroup.rotation.y = -0.48;
+    this.currentTankMesh.addtoScene(this.scene);
+    this.currentTankMesh.mash.position.set(0, 0.35, 0);
+    this.currentTankMesh.mash.rotation.y = -0.48;
   }
 
   private prepareModel(model: THREE.Object3D, material: THREE.Material): void {
@@ -179,20 +190,29 @@ export class HangarPreviewComponent implements AfterViewInit, OnChanges, OnDestr
     if (!this.renderer || !this.scene || !this.camera) return;
 
     const t = (performance.now() - this.startedAt) / 1000;
-    this.tankGroup.rotation.y = -0.48 + Math.sin(t * 0.8) * 0.04;
-    this.tankGroup.position.y = 0.08 + Math.sin(t * 1.15) * 0.025;
-    this.camera.position.x = 4.2 + Math.sin(t * 0.65) * 0.16;
-    this.camera.position.y = 2.45 + Math.sin(t * 0.95) * 0.06;
-    this.camera.lookAt(0, 1.05, 0);
+    if (this.currentTankMesh) {
+      this.currentTankMesh.mash.rotation.y = -0.48 + Math.sin(t * 0.8) * 0.04;
+      this.currentTankMesh.mash.position.y = 0.35 + Math.sin(t * 1.15) * 0.025;
+    }
+    
+    this.camera.position.x = 4.8 + Math.sin(t * 0.65) * 0.16;
+    this.camera.position.y = 2.8 + Math.sin(t * 0.95) * 0.06;
+    this.camera.lookAt(0, 1.2, 0);
 
     this.renderer.render(this.scene, this.camera);
   }
 
   private resize(): void {
     const canvas = this.canvasRef()?.nativeElement;
-    if (!canvas || !this.renderer || !this.camera) return;
-    const width = canvas.clientWidth || 1;
-    const height = canvas.clientHeight || 1;
+    const container = this.containerRef()?.nativeElement;
+    if (!canvas || !container || !this.renderer || !this.camera) return;
+
+    const width = container.clientWidth || 1;
+    const height = container.clientHeight || 1;
+    
+    // Check if size actually changed to avoid redundant updates
+    if (canvas.width === width && canvas.height === height) return;
+
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();

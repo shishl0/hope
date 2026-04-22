@@ -1,191 +1,160 @@
-import { inject, Injectable, NgZone } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import * as THREE from 'three';
-import { BehaviorSubject, Subscription } from 'rxjs';
-
+import { BehaviorSubject } from 'rxjs';
+import GUI from 'lil-gui';
+import { VfxService } from './vfx.service';
+import { T34TankMesh } from '../meshes/t34Tank.mesh';
+import { Pz4TankMesh } from '../meshes/pz4Tank.mesh';
 import { CameraService } from './camera';
-import { RendererService } from './renderer';
+import { AuthService } from '../services/auth.service';
+import { ArenaMesh } from '../meshes/ArenaMesh';
 import { LightService } from './light';
 
-import { InputHandler } from '../input/input-handler';
-import { ProtoTankInput } from '../input/player-input';
-import { ProtoTankWsService, WsStats } from '../game-network/proto-tank-ws.service';
-import { ProtoTankMoveResponseDto } from '../game-network/player-state-dto';
+export interface PlayerStat {
+  id: string;
+  nick: string;
+  kills: number;
+  deaths: number;
+  team: string;
+}
 
-import { ArenaMesh } from '../meshes/ArenaMesh';
-import { BulletMesh } from '../meshes/bullet.Mesh';
-import { ObstacleMesh } from '../meshes/ObstacleMesh';
-import { ProtoTankMesh } from '../meshes/protoTank.mes';
-
-type SceneMesh = ArenaMesh | ObstacleMesh | ProtoTankMesh | BulletMesh;
-
-/** Per-frame Lerp factor. */
-const LERP_ALPHA = 0.15;
+export interface GameHudStats {
+  fps: number;
+  tps: number;
+  ping: number;
+  speed_kmh: number;
+  velocity: number;
+  at_wall: boolean;
+  reload: number;
+  connected: boolean;
+  pos: { x: number, z: number };
+  hp: number;
+  dead: boolean;
+  timer: number;
+  redScore: number;
+  blueScore: number;
+  leaderboard: PlayerStat[];
+}
 
 /** World bounds — MUST match ProtoTankConsumer */
 const WORLD_MIN = -110;
-const WORLD_MAX =   90;
+const WORLD_MAX = 90;
 const WORLD_CENTER_X = (WORLD_MIN + WORLD_MAX) / 2;  // -10
 const WORLD_CENTER_Z = (WORLD_MIN + WORLD_MAX) / 2;  // -10
 const WORLD_SIZE = WORLD_MAX - WORLD_MIN;             // 200
 
-/**
- * Shortest-path angle lerp — prevents 360° flipping artefacts.
- * Both angles are normalised to (-π, π].
- */
+/** Per-frame Lerp factors */
+const LERP_ALPHA_POS = 0.15;
+const LERP_ALPHA_ROT = 0.12;
+
 function lerpAngle(current: number, target: number, alpha: number): number {
   let delta = ((target - current) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
   return current + delta * alpha;
 }
 
-// ── Public HUD stats interface ────────────────────────────────────
-
-export interface GameHudStats {
-  fps:       number;
-  tps:       number;
-  ping:      number;
-  speed_kmh: number;
-  velocity:  number;
-  at_wall:   boolean;
-  reload:    number;
-  connected: boolean;
-  pos: { x: number; z: number };
-}
-
-// ─────────────────────────────────────────────────────────────────
-
-@Injectable({ providedIn: 'root' })
+@Injectable({
+  providedIn: 'root'
+})
 export class SceneService {
-
-  // Exposed to GameComponent for the HUD overlay
-  readonly hud$ = new BehaviorSubject<GameHudStats>({
-    fps: 0, tps: 0, ping: 0,
-    speed_kmh: 0, velocity: 0,
-    at_wall: false, reload: 0, connected: false,
-    pos: { x: 0, z: 0 },
+  public scene: THREE.Scene;
+  public renderer!: THREE.WebGLRenderer;
+  public clock = new THREE.Clock();
+  
+  private tanks: Map<string, (T34TankMesh | Pz4TankMesh) & { targetPos?: THREE.Vector3, targetRot?: number, targetTurr?: number }> = new Map();
+  private bullets: THREE.Mesh[] = [];
+  private arena?: ArenaMesh;
+  private reticleMesh!: THREE.Group;
+  
+  // HUD
+  private hudSubject = new BehaviorSubject<GameHudStats>({
+    fps: 0, tps: 0, ping: 0, speed_kmh: 0, velocity: 0, at_wall: false, reload: 0,
+    connected: false, pos: { x: 0, z: 0 }, hp: 100, dead: false,
+    timer: 540, redScore: 0, blueScore: 0, leaderboard: []
   });
+  public hud$ = this.hudSubject.asObservable();
+  
+  // Networking
+  private socket?: WebSocket;
+  private myId: string = '';
+  private lastPingSent = 0;
+  private pingValue = 0;
+  private frames = 0;
+  private lastFpsUpdate = 0;
+  private tickCount = 0;
 
-  private scene!: THREE.Scene;
-  private animationId!: number;
-  private canvas?: HTMLCanvasElement;
-  private resizeObserver?: ResizeObserver;
+  // Input
+  private keys: Record<string, boolean> = {};
+  public keybindings = {
+    forward: 'KeyW',
+    backward: 'KeyS',
+    left: 'KeyA',
+    right: 'KeyD',
+    turretLeft: 'KeyU',
+    turretRight: 'KeyI',
+    fire: 'Space'
+  };
 
-  private inputSub?: Subscription;
-  private stateSub?: Subscription;
-  private statsSub?: Subscription;
+  // Dev Mode
+  private isDevMode = false;
+  private gui?: GUI;
 
-  private sceneObjects: SceneMesh[] = [];
-  private players = new Map<string, ProtoTankMesh>();
-  private targetPlayers = new Map<string, any>();
-  private localPlayerId = '';
-
-  // Server-authoritative targets (updated on every server tick)
-  private targetPos     = new THREE.Vector3(0, 0.35, 0);
-  private lastState = { speed_kmh: 0, velocity: 0, at_wall: false, reload: 0 };
-  private wsStats: WsStats = { ping: 0, tps: 0, connected: false };
-  private bulletMeshes: BulletMesh[] = [];
-
-  // FPS counter
-  private fpsFrames  = 0;
-  private fpsLast    = performance.now();
-  private currentFps = 0;
-
-  private readonly CameraService   = inject(CameraService);
-  private readonly RendererService = inject(RendererService);
-  private readonly LightService    = inject(LightService);
-  private readonly InputHandler    = inject(InputHandler);
-  private readonly WsService       = inject(ProtoTankWsService);
-  private readonly ngZone          = inject(NgZone);
-
-  private lastHudUpdate = 0;
-  private readonly HUD_INTERVAL = 100; // ms
-
-  private readonly _onResize = () => this.resizeCanvasIfNeeded();
-
-
-  // ── Init ─────────────────────────────────────────────────────────
-
-  init(canvas: HTMLCanvasElement): void {
-    this.canvas = canvas;
-
+  constructor(
+    private ngZone: NgZone, 
+    private vfx: VfxService,
+    private cameraService: CameraService,
+    private auth: AuthService,
+    private lightService: LightService
+  ) {
+    this.loadKeybindings();
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a2a4a);
-    // Blue atmospheric haze — density 0.005 visible ~200+ units away
-    this.scene.fog = new THREE.FogExp2(0x2a4070, 0.005);
+    this.scene.background = new THREE.Color(0x9dc8e8); // Cinematic sky blue
+    this.scene.fog = new THREE.FogExp2(0x9dc8e8, 0.005); // Fog matching sky
+    
+    this.lightService.createSunLight(this.scene);
 
-    this.RendererService.init(canvas);
-    this.CameraService.init(
-      (canvas.clientWidth || window.innerWidth) /
-      (canvas.clientHeight || window.innerHeight)
-    );
+    const floorGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x1a2e10, roughness: 0.9 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(WORLD_CENTER_X, 0, WORLD_CENTER_Z);
+    floor.receiveShadow = true;
+    this.scene.add(floor);
 
-    this.LightService.createSunLight(this.scene);
-    this._buildWorldGeometry();
+    const worldGrid = new THREE.GridHelper(WORLD_SIZE, 40, 0x2a4020, 0x1e3010);
+    worldGrid.position.set(WORLD_CENTER_X, 0.01, WORLD_CENTER_Z);
+    this.scene.add(worldGrid);
 
-    // ── Game objects ──────────────────────────────────────────────
-    const arena = new ArenaMesh('/3d_Models/arena-1.fbx');
-    arena.addtoScene(this.scene);
+    this._buildBoundary();
+    this._buildReticle();
 
-    const obs1 = new ObstacleMesh('obstacle-1', new THREE.Vector3(2, 1, 2));
-    obs1.mash.position.set(0, 0.5, 5);
-    obs1.addtoScene(this.scene);
+    this.arena = new ArenaMesh('/3d_Models/arena-1.fbx');
+    this.arena.addtoScene(this.scene);
 
-    const obs2 = new ObstacleMesh('obstacle-2', new THREE.Vector3(2, 1, 2));
-    obs2.mash.position.set(4, 0.5, 2);
-    obs2.addtoScene(this.scene);
-
-    this.sceneObjects = [arena, obs1, obs2];
-
-    // ── Network ───────────────────────────────────────────────────
-    this.WsService.myId$.subscribe(id => this.localPlayerId = id);
-    this.WsService.connect();
-    this._ensureLocalTankPreview();
-
-    // Receive server ticks → update lerp targets
-    this.stateSub = this.WsService.state$.subscribe(s => this._applyState(s));
-
-    // Receive ping/tps stats
-    this.statsSub = this.WsService.stats$.subscribe(s => { this.wsStats = s; });
-
-    // Forward key events to server on CHANGE only
-    // (server now drives the physics loop — no polling needed)
-    this.InputHandler.startListening();
-    this.inputSub = this.InputHandler.getProtoTankInputObservable().subscribe(inp => {
-      this.WsService.sendInput(inp);
-    });
-
-    // ── Render loop (Run outside Angular Zone for 60 FPS) ────────
-    this.ngZone.runOutsideAngular(() => {
-      this._animate();
-    });
-
-    window.addEventListener('resize', this._onResize);
-    this.resizeObserver = new ResizeObserver(this._onResize);
-    this.resizeObserver.observe(canvas);
+    this.vfx.init(this.scene);
   }
 
-  // ── World geometry (ground + red boundary) ────────────────────
+  private _buildReticle(): void {
+    this.reticleMesh = new THREE.Group();
+    const crossGeoH = new THREE.PlaneGeometry(0.8, 0.15);
+    const crossGeoV = new THREE.PlaneGeometry(0.15, 0.8);
+    const crossMat = new THREE.MeshBasicMaterial({ 
+      color: 0xff0000, 
+      depthTest: false, 
+      transparent: true, 
+      opacity: 0.8, 
+      side: THREE.DoubleSide 
+    });
+    const crossH = new THREE.Mesh(crossGeoH, crossMat);
+    const crossV = new THREE.Mesh(crossGeoV, crossMat);
+    crossH.renderOrder = 999;
+    crossV.renderOrder = 999;
+    this.reticleMesh.add(crossH);
+    this.reticleMesh.add(crossV);
+    this.scene.add(this.reticleMesh);
+    this.reticleMesh.visible = false;
+  }
 
-  private _buildWorldGeometry(): void {
-    const cx = WORLD_CENTER_X;
-    const cz = WORLD_CENTER_Z;
-    const sz = WORLD_SIZE;
-
-    // Ground plane — centred on the world centre
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(sz, sz),
-      new THREE.MeshStandardMaterial({ color: 0x1a2e10, roughness: 0.9 }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(cx, 0, cz);
-    ground.receiveShadow = true;
-    this.scene.add(ground);
-
-    // Grid — same centre, 40 divisions
-    const grid = new THREE.GridHelper(sz, 40, 0x2a4020, 0x1e3010);
-    grid.position.set(cx, 0.01, cz);
-    this.scene.add(grid);
-
-    // ── Red boundary ────────────────────────────────────────────
+  private _buildBoundary(): void {
     const mn = WORLD_MIN;
     const mx = WORLD_MAX;
     const by = 0.05;
@@ -200,7 +169,6 @@ export class SceneService {
     const lineGeo = new THREE.BufferGeometry().setFromPoints(corners);
     this.scene.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xff1111 })));
 
-    // Corner pillars
     const pillarMat = new THREE.MeshStandardMaterial({ color: 0xdd0000, emissive: 0x660000 });
     const pillarGeo = new THREE.BoxGeometry(0.6, 4, 0.6);
     for (const [px, pz] of [[mn, mn], [mx, mn], [mx, mx], [mn, mx]] as [number, number][]) {
@@ -211,189 +179,377 @@ export class SceneService {
     }
   }
 
-  private _applyState(s: any[]): void {
-    if (!s || s.length < 2) return;
-    const playersData = s[0] as any[];
-    const bulletData = s[1] as [number, number, number, number][];
+  private sessionId: string = 'global';
 
-    const activeIds = new Set<string>();
+  init(canvas: HTMLCanvasElement, sessionId: string = 'global') {
+    this.sessionId = sessionId;
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: false,
+      powerPreference: 'high-performance'
+    });
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
 
-    for (const p of playersData) {
-        activeIds.add(p.id);
-        
-        if (!this.players.has(p.id)) {
-            const color = p.id === this.localPlayerId ? 0x2f8f46 : Math.random() * 0xffffff;
-            const tank = new ProtoTankMesh(p.id, color, new THREE.Vector3(1.6, 0.7, 2.4));
-            tank.addtoScene(this.scene);
-            this.players.set(p.id, tank);
-        }
-        
-        this.targetPlayers.set(p.id, {
-            pos: new THREE.Vector3(p.x, 0.35, p.z),
-            rotY: p.ry,
-            turrY: p.ty
-        });
-
-        if (p.id === this.localPlayerId) {
-            this.lastState.speed_kmh = p.sp;
-            this.lastState.velocity  = p.sp / 3.6;
-            this.lastState.at_wall   = p.w === 1;
-            this.lastState.reload    = p.rld;
-        }
-    }
+    this.cameraService.init(window.innerWidth / window.innerHeight, canvas);
     
-    // Remove disconnected players
-    for (const id of Array.from(this.players.keys())) {
-        if (!activeIds.has(id)) {
-            const tank = this.players.get(id)!;
-            tank.removeFromScene(this.scene);
-            tank.dispose();
-            this.players.delete(id);
-            this.targetPlayers.delete(id);
-        }
-    }
+    window.addEventListener('resize', () => this.onResize());
+    window.addEventListener('keydown', (e) => this.onKey(e, true));
+    window.addEventListener('keyup', (e) => this.onKey(e, false));
 
-    this._syncBullets(bulletData);
+    this.start();
+    this.animate();
   }
 
-  private _ensureLocalTankPreview(): void {
-    const previewId = 'local-preview';
-    if (this.players.has(previewId)) return;
+  private onResize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.renderer.setSize(w, h);
+    this.cameraService.onResize(w / h);
+  }
 
-    this.localPlayerId = previewId;
-    const tank = new ProtoTankMesh(previewId, 0x2f8f46, new THREE.Vector3(1.6, 0.7, 2.4));
-    tank.mash.position.set(0, 0.35, 0);
-    tank.addtoScene(this.scene);
-    this.players.set(previewId, tank);
-    this.targetPlayers.set(previewId, {
-      pos: new THREE.Vector3(0, 0.35, 0),
-      rotY: 0,
-      turrY: 0,
+  private onKey(e: KeyboardEvent, isDown: boolean) {
+    if (e.repeat) return;
+    this.keys[e.code] = isDown;
+    this.sendInput();
+    
+    if (isDown && e.code === 'F2') {
+      this.toggleDevMode();
+    }
+  }
+
+  private sendInput() {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({
+        type: 'input',
+        forward: !!this.keys[this.keybindings.forward],
+        backward: !!this.keys[this.keybindings.backward],
+        hullRotateLeft: !!this.keys[this.keybindings.left],
+        hullRotateRight: !!this.keys[this.keybindings.right],
+        turretLeft: !!this.keys[this.keybindings.turretLeft],
+        turretRight: !!this.keys[this.keybindings.turretRight],
+        fire: !!this.keys[this.keybindings.fire]
+      }));
+    }
+  }
+
+  public setKey(action: keyof typeof this.keybindings, code: string) {
+    (this.keybindings as any)[action] = code;
+    localStorage.setItem('hope_keys', JSON.stringify(this.keybindings));
+  }
+
+  private loadKeybindings() {
+    const saved = localStorage.getItem('hope_keys');
+    if (saved) {
+      try {
+        this.keybindings = { ...this.keybindings, ...JSON.parse(saved) };
+      } catch (e) {}
+    }
+  }
+
+  start() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const nick = this.auth.profile()?.nickname || 'Guest';
+    const token = localStorage.getItem('hope_access') || '';
+    this.socket = new WebSocket(`${protocol}//${window.location.hostname}:8001/ws/proto-tank/${this.sessionId}/?nick=${encodeURIComponent(nick)}&token=${token}`);
+    
+    this.socket.onopen = () => {
+      this.hudSubject.next({ ...this.hudSubject.value, connected: true });
+      this.startPingLoop();
+    };
+
+    this.socket.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.type === 'init') {
+        this.myId = data.id;
+      } else if (data.type === 'pong') {
+        this.pingValue = Date.now() - data.client_time;
+      } else if (Array.isArray(data)) {
+        if (this.tickCount % 100 === 0) console.log(`[Game] Received ${data[0].length} players. MyID: ${this.myId}`);
+        this.updateState(data[0], data[1], data[2]);
+        this.tickCount++;
+      }
+    };
+
+    this.socket.onclose = () => {
+      this.hudSubject.next({ ...this.hudSubject.value, connected: false });
+    };
+  }
+
+  private startPingLoop() {
+    setInterval(() => {
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: 'ping', client_time: Date.now() }));
+      }
+    }, 2000);
+  }
+
+  private animate() {
+    this.ngZone.runOutsideAngular(() => {
+      const loop = () => {
+        const delta = this.clock.getDelta();
+        this.frames++;
+        
+        const now = performance.now();
+        if (now - this.lastFpsUpdate > 1000) {
+          const fps = Math.round((this.frames * 1000) / (now - this.lastFpsUpdate));
+          const tps = Math.round((this.tickCount * 1000) / (now - this.lastFpsUpdate));
+          this.hudSubject.next({ ...this.hudSubject.value, fps, tps, ping: this.pingValue });
+          this.frames = 0;
+          this.tickCount = 0;
+          this.lastFpsUpdate = now;
+        }
+
+        this.tanks.forEach((tank, id) => {
+          if (tank.targetPos) {
+            if (tank.mash.position.distanceTo(tank.targetPos) < 0.01) {
+              tank.mash.position.copy(tank.targetPos);
+            } else {
+              tank.mash.position.lerp(tank.targetPos, LERP_ALPHA_POS);
+            }
+          }
+          if (tank.targetRot !== undefined) {
+            tank.mash.rotation.y = lerpAngle(tank.mash.rotation.y, tank.targetRot, LERP_ALPHA_ROT);
+          }
+          if (tank.targetTurr !== undefined) {
+            tank.lerpTurretRotationY(tank.targetTurr, LERP_ALPHA_ROT);
+          }
+
+          if ((tank as any).isDead) {
+            this.vfx.emitContinuousFire(tank.mash.position);
+          }
+
+          // Emit VFX (tracks/dust)
+          const sp = this.hudSubject.value.speed_kmh; // approximated or from state
+          this.vfx.emitForTank(tank.mash.position, tank.mash.rotation.y, sp, id === this.myId, tank.colliderSize.x, tank.colliderSize.y);
+        });
+
+        // ── Reticle / Crosshair logic ──
+        const localTank = this.tanks.get(this.myId);
+        if (localTank && !(localTank as any).isDead) {
+          const muzzlePos = localTank.getMuzzleWorldPosition();
+          const worldTurr = localTank.getTurretWorldYaw();
+          const dir = new THREE.Vector3(Math.sin(worldTurr), 0, Math.cos(worldTurr));
+          
+          const raycaster = new THREE.Raycaster(muzzlePos, dir, 0, 100);
+          const colliders: THREE.Object3D[] = [];
+          if (this.arena) colliders.push(this.arena.mash);
+          this.tanks.forEach((t, tid) => {
+            if (tid !== this.myId && !(t as any).isDead) {
+              colliders.push(t.mash);
+            }
+          });
+          
+          const intersects = raycaster.intersectObjects(colliders, true);
+          if (intersects.length > 0) {
+            this.reticleMesh.position.copy(intersects[0].point);
+          } else {
+            this.reticleMesh.position.copy(muzzlePos).add(dir.multiplyScalar(40));
+          }
+          this.reticleMesh.visible = true;
+          const cam = this.cameraService.getCamera();
+          if (cam) this.reticleMesh.lookAt(cam.position);
+        } else {
+          this.reticleMesh.visible = false;
+        }
+
+        this.vfx.update(delta);
+
+        // ── Bullet Extrapolation ──
+        // Server runs at 20 TPS (50ms). vel is per-tick.
+        // Units/sec = vel * 20
+        for (const b of this.bullets) {
+          if ((b as any).vel) {
+            b.position.x += (b as any).vel.x * 20 * delta;
+            b.position.z += (b as any).vel.z * 20 * delta;
+          }
+        }
+
+        this.cameraService.updateControls();
+        
+        const myTank = this.tanks.get(this.myId);
+        if (myTank) {
+          this.cameraService.followTurretPivot(
+            myTank.getTurretWorldPosition(),
+            myTank.getTurretWorldYaw()
+          );
+        }
+
+        this.renderer.render(this.scene, this.cameraService.getCamera());
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
     });
   }
 
-  private _syncBullets(data: [number, number, number, number][]): void {
-    if (!data) return;
+  updateState(players: any[], bullets: any[][], status?: any) {
+    const currentIds = new Set(players.map(p => p.id));
     
-    while (this.bulletMeshes.length < data.length) {
-      const bm = new BulletMesh(`b_${this.bulletMeshes.length}`);
-      bm.addtoScene(this.scene);
-      this.bulletMeshes.push(bm);
+    // Leaderboard update
+    const leaderboard: PlayerStat[] = players.map(p => ({
+        id: p.id,
+        nick: p.nick,
+        kills: p.k || 0,
+        deaths: p.d || 0,
+        team: p.tm
+    })).sort((a, b) => b.kills - a.kills);
+
+    const hudUpdate: any = { leaderboard };
+    if (status) {
+        hudUpdate.timer = status.timer;
+        hudUpdate.redScore = status.score.red;
+        hudUpdate.blueScore = status.score.blue;
+    }
+    this.hudSubject.next({ ...this.hudSubject.value, ...hudUpdate });
+
+    for (const [id, tank] of this.tanks) {
+      if (!currentIds.has(id)) {
+        tank.removeFromScene(this.scene);
+        tank.dispose();
+        this.tanks.delete(id);
+      }
     }
     
-    for (let i = data.length; i < this.bulletMeshes.length; i++) {
-      this.bulletMeshes[i].mash.visible = false;
-    }
+    for (const p of players) {
+      let tank = this.tanks.get(p.id);
+      
+      if (!tank || (tank instanceof T34TankMesh && p.skin === 'pz4') || (tank instanceof Pz4TankMesh && p.skin === 't34')) {
+        if (tank) {
+            tank.removeFromScene(this.scene);
+            tank.dispose();
+        }
+        
+        tank = (p.skin === 'pz4') ? new Pz4TankMesh(p.id, p.c, p.nick) : new T34TankMesh(p.id, p.c, p.nick);
+        tank.addtoScene(this.scene);
+        this.tanks.set(p.id, tank);
+        
+        // Immediate position for first frame
+        tank.mash.position.set(p.x, 0.35, p.z);
+        tank.mash.rotation.y = p.ry;
+        tank.targetPos = new THREE.Vector3(p.x, 0.35, p.z);
+        tank.targetRot = p.ry;
 
-    for (let i = 0; i < data.length; i++) {
-        const bm = this.bulletMeshes[i];
-        // Snap bullet to server pos every packet, then extrapolate
-        bm.mash.position.set(data[i][0], 0.65, data[i][1]);
-        (bm as any).vel = { x: data[i][2], z: data[i][3] };
-        bm.mash.visible = true;
-    }
-  }
-
-  // ── Render loop ───────────────────────────────────────────────
-
-  private _animate(): void {
-    const loop = () => {
-      this.animationId = requestAnimationFrame(loop);
-
-      // FPS counter
-      this.fpsFrames++;
-      const now = performance.now();
-      if (now - this.fpsLast >= 1000) {
-        this.currentFps = this.fpsFrames;
-        this.fpsFrames  = 0;
-        this.fpsLast    = now;
+        if (this.isDevMode) tank.enableDevHelpers();
       }
+      
+      if (tank) {
+        // Hit detection
+        if ((tank as any).lastHp !== undefined && p.hp < (tank as any).lastHp && p.hp > 0) {
+          this.vfx.emitHit(tank.mash.position);
+        }
+        (tank as any).lastHp = p.hp;
 
-      // ── Lerp all players → server target ───────────────────────────
-      for (const [id, tank] of this.players.entries()) {
-          const target = this.targetPlayers.get(id);
-          if (target) {
-              tank.mash.position.lerp(target.pos, LERP_ALPHA);
-              tank.mash.rotation.y = lerpAngle(tank.mash.rotation.y, target.rotY, LERP_ALPHA);
-              tank.lerpTurretRotationY(target.turrY, LERP_ALPHA);
+        // Low HP Smoke
+        if (p.hp <= 30 && p.hp > 0) {
+          if (Math.random() > 0.8) {
+            this.vfx.emitLightSmoke(tank.mash.position);
           }
+        }
+
+        // Firing VFX check
+        if ((tank as any).lastRld !== undefined && p.rld > 6.5 && (tank as any).lastRld < 1.0) {
+           const worldTurr = tank.getTurretWorldYaw();
+           const muzzlePos = new THREE.Vector3(
+               tank.mash.position.x + Math.sin(worldTurr) * 3.5,
+               tank.mash.position.y + 1.2,
+               tank.mash.position.z + Math.cos(worldTurr) * 3.5
+           );
+           const dir = new THREE.Vector3(Math.sin(worldTurr), 0, Math.cos(worldTurr));
+           this.vfx.emitMuzzleFlash(muzzlePos, dir);
+        }
+        (tank as any).lastRld = p.rld;
+
+        tank.targetPos = new THREE.Vector3(p.x, 0.35, p.z);
+        tank.targetRot = p.ry;
+        tank.targetTurr = p.ty;
+        // Destroyed visual state: darkened color and no longer hidden
+        (tank as any).setDead(p.dead === 1);
+        (tank as any).isDead = (p.dead === 1);
+        tank.mash.visible = true; 
+
+        if (p.id === this.myId) {
+          this.hudSubject.next({
+            ...this.hudSubject.value,
+            speed_kmh: p.sp,
+            velocity: 0,
+            at_wall: !!p.w,
+            reload: p.rld,
+            pos: { x: p.x, z: p.z },
+            hp: p.hp,
+            dead: !!p.dead
+          });
+        }
       }
-
-      // ── Bullet Extrapolation (Butter Smooth 60FPS) ────────────────
-      // Bullets natively travel at `vel.x` per server tick (50ms). We run 60FPS (~16.6ms).
-      // So we apply 1/3 of the velocity per frame.
-      for (const bm of this.bulletMeshes) {
-          if (bm.mash.visible && (bm as any).vel) {
-              bm.mash.position.x += (bm as any).vel.x / 3;
-              bm.mash.position.z += (bm as any).vel.z / 3;
-          }
-      }
-
-      // ── Camera & Local HUD ───────────────────────────────────────
-      const localTank = this.players.get(this.localPlayerId);
-      if (localTank) {
-          this.CameraService.followTurretPivot(
-            localTank.getTurretWorldPosition(),
-            localTank.getTurretWorldYaw(),
-          );
-      }
-
-      // ── HUD (throttled to 10 Hz to reduce CD overhead) ────────
-      if (now - this.lastHudUpdate >= this.HUD_INTERVAL) {
-        this.lastHudUpdate = now;
-        this.hud$.next({
-          fps:       this.currentFps,
-          tps:       this.wsStats.tps,
-          ping:      this.wsStats.ping,
-          speed_kmh: this.lastState.speed_kmh,
-          velocity:  this.lastState.velocity,
-          at_wall:   this.lastState.at_wall,
-          reload:    this.lastState.reload,
-          connected: this.wsStats.connected,
-          pos: {
-            x: localTank ? Math.round(localTank.mash.position.x * 10) / 10 : 0,
-            z: localTank ? Math.round(localTank.mash.position.z * 10) / 10 : 0,
-          },
-        });
-      }
-
-      this._render();
-    };
-    this.animationId = requestAnimationFrame(loop);
-  }
-
-  // ── Teardown ──────────────────────────────────────────────────
-
-  stop(): void {
-    cancelAnimationFrame(this.animationId);
-    window.removeEventListener('resize', this._onResize);
-    this.resizeObserver?.disconnect();
-    this.inputSub?.unsubscribe();
-    this.stateSub?.unsubscribe();
-    this.statsSub?.unsubscribe();
-    this.InputHandler.stopListening();
-    this.WsService.disconnect();
-    this.sceneObjects.forEach(o => o.dispose());
-    this.bulletMeshes.forEach(b => b.dispose());
-    this.players.forEach(p => p.dispose());
-    this.sceneObjects = [];
-    this.bulletMeshes = [];
-    this.players.clear();
-    this.targetPlayers.clear();
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────
-
-  private _render(): void {
-    const r = this.RendererService.getRenderer();
-    const c = this.CameraService.getCamera();
-    if (r && this.scene && c) r.render(this.scene, c);
-  }
-
-  private resizeCanvasIfNeeded(): void {
-    if (!this.canvas) return;
-    if (this.RendererService.resizeToDisplaySize(this.canvas)) {
-      this.CameraService.onResize(this.canvas.clientWidth / this.canvas.clientHeight);
     }
+    
+    // ── Bullet Management ────────────────────────────────────
+    const currentBulletCount = bullets.length;
+    
+    // Cleanup old bullets
+    while (this.bullets.length > currentBulletCount) {
+      const b = this.bullets.pop();
+      if (b) this.scene.remove(b);
+    }
+
+    const bulletGeo = new THREE.SphereGeometry(0.2, 8, 8);
+    const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+
+    for (let i = 0; i < currentBulletCount; i++) {
+      const bData = bullets[i]; // [x, z, vx, vz]
+      let mesh = this.bullets[i];
+      if (!mesh) {
+        mesh = new THREE.Mesh(bulletGeo, bulletMat);
+        this.scene.add(mesh);
+        this.bullets[i] = mesh;
+      }
+      mesh.position.set(bData[0], 0.8, bData[1]);
+      (mesh as any).vel = { x: bData[2], z: bData[3] };
+    }
+  }
+
+  toggleDevMode() {
+    this.isDevMode = !this.isDevMode;
+    this.cameraService.setDevMode(this.isDevMode);
+    
+    if (this.isDevMode) {
+      this.gui = new GUI();
+      this.gui.title('Tank Calibration');
+      this.tanks.forEach(tank => {
+        tank.enableDevHelpers();
+        const folder = this.gui!.addFolder(`Tank: ${tank instanceof T34TankMesh ? 'T34' : 'Pz4'}`);
+        const body = folder.addFolder('Body');
+        body.add(tank.bodyOffset, 'x', -5, 5).name('Off X').onChange(() => tank.updateDevOffsets());
+        body.add(tank.bodyOffset, 'y', -5, 5).name('Off Y').onChange(() => tank.updateDevOffsets());
+        body.add(tank.bodyOffset, 'z', -5, 5).name('Off Z').onChange(() => tank.updateDevOffsets());
+        body.add(tank.bodyCenter, 'x', -15, 15).name('Cen X').onChange(() => tank.updateDevOffsets());
+        body.add(tank.bodyCenter, 'y', -15, 15).name('Cen Y').onChange(() => tank.updateDevOffsets());
+        body.add(tank.bodyCenter, 'z', -15, 15).name('Cen Z').onChange(() => tank.updateDevOffsets());
+        body.add(tank.bodyRotation, 'y', -Math.PI, Math.PI).name('Rot Y').onChange(() => tank.updateDevOffsets());
+        const turret = folder.addFolder('Turret');
+        turret.add(tank.turretOffset, 'x', -5, 5).name('Off X').onChange(() => tank.updateDevOffsets());
+        turret.add(tank.turretOffset, 'y', -5, 5).name('Off Y').onChange(() => tank.updateDevOffsets());
+        turret.add(tank.turretOffset, 'z', -5, 5).name('Off Z').onChange(() => tank.updateDevOffsets());
+        turret.add(tank.turretCenter, 'x', -15, 15).name('Cen X').onChange(() => tank.updateDevOffsets());
+        turret.add(tank.turretCenter, 'y', -15, 15).name('Cen Y').onChange(() => tank.updateDevOffsets());
+        turret.add(tank.turretCenter, 'z', -15, 15).name('Cen Z').onChange(() => tank.updateDevOffsets());
+        turret.add(tank.turretRotation, 'y', -Math.PI, Math.PI).name('Rot Y').onChange(() => tank.updateDevOffsets());
+        const muzzle = folder.addFolder('Muzzle');
+        muzzle.add(tank.muzzleOffset, 'x', -5, 5).onChange(() => tank.updateDevOffsets());
+        muzzle.add(tank.muzzleOffset, 'y', -5, 5).onChange(() => tank.updateDevOffsets());
+        muzzle.add(tank.muzzleOffset, 'z', -5, 5).onChange(() => tank.updateDevOffsets());
+        folder.open();
+      });
+    } else {
+      this.tanks.forEach(tank => tank.disableDevHelpers());
+      if (this.gui) {
+        this.gui.destroy();
+        this.gui = undefined;
+      }
+    }
+  }
+
+  stop() {
+    this.socket?.close();
   }
 }

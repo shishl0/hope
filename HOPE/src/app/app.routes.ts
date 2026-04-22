@@ -10,7 +10,7 @@ import { LobbyComponent } from './pages/lobby/lobby.component';
 import { FriendsComponent } from './pages/friends/friends.component';
 
 export const routes: Routes = [
-    { path: '', component: WelcomeComponent },
+    { path: '', redirectTo: 'profile', pathMatch: 'full' },
     { path: 'login', component: LoginComponent },
     { path: 'register', component: RegisterComponent },
     { path: 'profile', component: ProfileComponent, canActivate: [authGuard] },

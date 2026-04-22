@@ -2,7 +2,12 @@ import json
 import asyncio
 import math
 import random
+import time
 from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+from rest_framework_simplejwt.tokens import AccessToken
+from django.contrib.auth.models import User
+from .models import PlayerProfile, LobbyPlayer
 from .engine import GameRoom
 from .collision import object_collides
 
@@ -10,16 +15,20 @@ ACTIVE_ROOMS = {}
 PROTO_ROOMS = {}
 
 # ─────────────────────────────────────────────────────────────────
-#  2D Multiplayer Consumer (unchanged)
+#  2D Multiplayer Consumer
 # ─────────────────────────────────────────────────────────────────
 
 class GameConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.lobby_id = self.scope['url_route']['kwargs']['lobby_id']
+        # We simulate multiple lobbies, but all join the same global room in-memory
+        # Extract lobby_id from URL or default to global
+        self.lobby_id = self.scope['url_route']['kwargs'].get('lobby_id', 'global')
         self.lobby_group_name = f'game_{self.lobby_id}'
         self.player_id = None
+        
         if self.lobby_id not in ACTIVE_ROOMS:
             ACTIVE_ROOMS[self.lobby_id] = GameRoom(self.lobby_id, self.channel_layer)
+        
         await self.channel_layer.group_add(self.lobby_group_name, self.channel_name)
         await self.accept()
 
@@ -28,9 +37,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             room = ACTIVE_ROOMS.get(self.lobby_id)
             if room:
                 await room.remove_player(self.player_id)
-                if not room.players:
-                    room.stop()
-                    del ACTIVE_ROOMS[self.lobby_id]
+                # Keep the global room alive even if empty for simulation
         await self.channel_layer.group_discard(self.lobby_group_name, self.channel_name)
 
     async def receive(self, text_data):
@@ -55,69 +62,14 @@ class GameConsumer(AsyncWebsocketConsumer):
 # ─────────────────────────────────────────────────────────────────
 
 TPS = 20
-DT  = 1.0 / TPS   # seconds per tick
+DT  = 1.0 / TPS
 
 def _norm(a: float) -> float:
-    """Normalise angle to (-π, π]."""
     a %= 2 * math.pi
     if a > math.pi:
         a -= 2 * math.pi
     return a
 
-def _get_obb_corners(pos_x, pos_z, rot_y, width, length):
-    w, l = width / 2.0, length / 2.0
-    c, s = math.cos(rot_y), math.sin(rot_y)
-    return [
-        (pos_x + w*c - l*s, pos_z + w*s + l*c),
-        (pos_x - w*c - l*s, pos_z - w*s + l*c),
-        (pos_x - w*c + l*s, pos_z - w*s - l*c),
-        (pos_x + w*c + l*s, pos_z + w*s - l*c)
-    ]
-
-def _get_axes(corners):
-    axes = []
-    for i in range(len(corners)):
-        p1 = corners[i]
-        p2 = corners[(i + 1) % len(corners)]
-        edge = (p2[0] - p1[0], p2[1] - p1[1])
-        normal = (-edge[1], edge[0])
-        length = math.hypot(normal[0], normal[1])
-        if length > 0.0001:
-            axes.append((normal[0] / length, normal[1] / length))
-    return axes
-
-def _sat_overlap_mtv(corners_a, corners_b):
-    overlap = float('inf')
-    mtv = None
-    axes = _get_axes(corners_a) + _get_axes(corners_b)
-    
-    for axis in axes:
-        min_a = min_b = float('inf')
-        max_a = max_b = float('-inf')
-        for p in corners_a:
-            dot = p[0] * axis[0] + p[1] * axis[1]
-            min_a = min(min_a, dot); max_a = max(max_a, dot)
-        for p in corners_b:
-            dot = p[0] * axis[0] + p[1] * axis[1]
-            min_b = min(min_b, dot); max_b = max(max_b, dot)
-            
-        if max_a < min_b or max_b < min_a:
-            return False, None
-            
-        o = min(max_a - min_b, max_b - min_a)
-        if o < overlap:
-            overlap = o
-            cx_a = sum(p[0] for p in corners_a) / 4
-            cz_a = sum(p[1] for p in corners_a) / 4
-            cx_b = sum(p[0] for p in corners_b) / 4
-            cz_b = sum(p[1] for p in corners_b) / 4
-            dx, dz = cx_a - cx_b, cz_a - cz_b
-            if (dx * axis[0] + dz * axis[1]) < 0:
-                mtv = (-axis[0] * o, -axis[1] * o)
-            else:
-                mtv = (axis[0] * o, axis[1] * o)
-                
-    return True, mtv
 _TANK_CONFIGS = {
     't34': {'size': [3.4, 0.7, 7.0]},
     'pz4': {'size': [3.0, 0.7, 7.0]},
@@ -139,24 +91,24 @@ PROTO_BULLET_SPEED = 12.0
 WORLD_MIN = -110.0
 WORLD_MAX  =  90.0
 
-
 class ProtoTankRoom:
     def __init__(self, room_id, channel_layer):
         self.room_id = room_id
         self.channel_layer = channel_layer
         self.group_name = f'prototank_{room_id}'
-        
-        self.players = {}  # channel_name -> state
-        self.bullets = []  # [bx, bz, vx, vz, owner_channel]
-        
-        self.game_mode = 'ffa' # can be 'ffa' or 'team'
-        
+        self.players = {}
+        self.bullets = []
+        self.game_mode = 'ffa'
         self._running = True
+        self._last_active = time.time()
+        self.game_timer = 540.0 # 9 minutes
+        self.team_scores = {'red': 0, 'blue': 0}
         self._loop_task = asyncio.create_task(self._game_loop())
 
-    async def add_player(self, channel_name):
+    async def add_player(self, channel_name, nickname=None, tank_type='t34', side='allies'):
         self.players[channel_name] = {
-            'id': channel_name,  # Unique ID for front-end tracking
+            'id': channel_name,
+            'nickname': nickname or f'Player_{random.randint(100, 999)}',
             'pos': [0.0, 0.35, 0.0],
             'rot_y': 0.0,
             'rot_v': 0.0,
@@ -165,7 +117,7 @@ class ProtoTankRoom:
             'hp': 100,
             'is_dead': False,
             'respawn_timer': 0.0,
-            'tank_type': 't34',
+            'tank_type': tank_type,
             'at_wall': False,
             'reload_timer': 0.0,
             'inp': {
@@ -174,17 +126,16 @@ class ProtoTankRoom:
                 'turretLeft': False, 'turretRight': False,
                 'fire': False,
             },
-            'team': None,
-            'color': random.randint(0, 0xffffff)
+            'team': 'red' if side == 'allies' else 'blue',
+            'color': 0xffffff,
+            'kills': 0,
+            'deaths': 0,
         }
         self._assign_team_and_spawn(channel_name)
 
     async def remove_player(self, channel_name):
         if channel_name in self.players:
             del self.players[channel_name]
-        
-        if not self.players:
-            self.stop()
 
     def stop(self):
         self._running = False
@@ -212,332 +163,364 @@ class ProtoTankRoom:
     def _assign_team_and_spawn(self, p_id):
         p = self.players[p_id]
         if self.game_mode == 'team':
-            # Count teams
-            r_count = sum(1 for pl in self.players.values() if pl['team'] == 'red')
-            b_count = sum(1 for pl in self.players.values() if pl['team'] == 'blue')
-            if r_count <= b_count and r_count < 5:
-                p['team'] = 'red'
-            elif b_count < 5:
-                p['team'] = 'blue'
-            else:
-                p['team'] = 'red' # fallback
+            # Identify spawn zone based on team
+            z_range = (-90, -70) if p['team'] == 'red' else (70, 90)
+            rot_y = 0.0 if p['team'] == 'red' else math.pi
+            
+            # Find a safe spot in the team zone
+            for _ in range(50):
+                px = random.uniform(-40, 40)
+                pz = random.uniform(*z_range)
+                collides = False
+                for other_id, other_p in self.players.items():
+                    if other_id != p_id and not other_p['is_dead']:
+                        if math.hypot(px - other_p['pos'][0], pz - other_p['pos'][2]) < 8.0:
+                            collides = True; break
+                if not collides:
+                    p['pos'] = [px, 0.35, pz]
+                    p['rot_y'] = rot_y
+                    p['vel_x'] = 0.0; p['vel_z'] = 0.0
+                    return
+            # Fallback
+            p['pos'] = [0, 0.35, z_range[0]]
+            p['rot_y'] = rot_y
         else:
-            p['team'] = None
+            p['team'] = 'ffa'
+            p['color'] = random.randint(0, 0xffffff)
+            for _ in range(50):
+                px = random.uniform(-90, 90)
+                pz = random.uniform(-90, 90)
+                collides = False
+                for other_id, other_p in self.players.items():
+                    if other_id != p_id and not other_p['is_dead']:
+                        if math.hypot(px - other_p['pos'][0], pz - other_p['pos'][2]) < 8.0:
+                            collides = True; break
+                if not collides:
+                    p['pos'] = [px, 0.35, pz]
+                    p['rot_y'] = random.uniform(0, math.pi * 2)
+                    p['vel_x'] = 0.0; p['vel_z'] = 0.0
+                    return
+            p['pos'] = [0, 0.35, 0]
+            p['rot_y'] = 0.0
+        p['vel_x'] = 0.0; p['vel_z'] = 0.0
         
-        self._spawn_player(p)
+    def _is_empty(self):
+        return len(self.players) == 0
 
-    def _spawn_player(self, p):
-        # find safe spot
-        p['vel_x'] = 0.0
-        p['vel_z'] = 0.0
-        p['rot_v'] = 0.0
+    def _cleanup_check(self):
+        """Shutdown room if empty for more than 30 seconds"""
+        if self._is_empty():
+            if time.time() - self._last_active > 30:
+                self.stop()
+                return True
+        else:
+            self._last_active = time.time()
+        return False
+
+    def _get_tank_corners(self, p):
+        t_size = _TANK_CONFIGS.get(p['tank_type'], {}).get('size', _DEFAULT_TANK_SIZE)
+        hw, hl = t_size[0] / 2, t_size[2] / 2
+        rot = p['rot_y']
+        cos_r, sin_r = math.cos(rot), math.sin(rot)
         
-        for _ in range(50): # max attempts
-            if self.game_mode == 'team':
-                if p['team'] == 'red':
-                    # Bottom-Left corner
-                    px = -40 + random.random() * 10
-                    pz = -40 + random.random() * 10
-                    py_rot = math.pi / 4 # 45 deg, facing center
-                else:
-                    # Top-Right corner
-                    px = 30 + random.random() * 10
-                    pz = 30 + random.random() * 10
-                    py_rot = -3 * math.pi / 4 # -135 deg, facing center
-            else:
-                px = (random.random() - 0.5) * 80
-                pz = (random.random() - 0.5) * 80
-                py_rot = random.random() * math.pi * 2
-            
-            # Distance check against all alive players to avoid overlap
-            collides = False
-            for other_id, other_p in self.players.items():
-                if other_id != p['id'] and not other_p['is_dead']:
-                    dx = px - other_p['pos'][0]
-                    dz = pz - other_p['pos'][2]
-                    if math.hypot(dx, dz) < 6.0: # ~6 meter safe zone
-                        collides = True
-                        break
-            
-            if not collides:
-                p['pos'] = [px, 0.35, pz]
-                p['rot_y'] = py_rot
-                p['turr_y'] = 0.0
-                return
+        corners = []
+        # Local corners: (±hw, ±hl)
+        for sx, sz in [(-1, -1), (1, -1), (1, 1), (-1, 1)]:
+            # Transform local to world:
+            # x = lx * cos + lz * sin
+            # z = -lx * sin + lz * cos
+            lx, lz = sx * hw, sz * hl
+            dx = lx * cos_r + lz * sin_r
+            dz = -lx * sin_r + lz * cos_r
+            corners.append([p['pos'][0] + dx, p['pos'][2] + dz])
+        return corners
+
+    def _check_tank_collision_sat(self, p1, p2, corners1=None, corners2=None):
+        if corners1 is None: corners1 = self._get_tank_corners(p1)
+        if corners2 is None: corners2 = self._get_tank_corners(p2)
         
-        # fallback if crowded
-        p['pos'] = [0, 0.35, 0]
-        p['rot_y'] = 0.0
+        rot1, rot2 = p1['rot_y'], p2['rot_y']
+        # 4 axes to check: longitudinal and transverse for both tanks
+        axes = [
+            [math.cos(rot1), -math.sin(rot1)],
+            [math.sin(rot1), math.cos(rot1)],
+            [math.cos(rot2), -math.sin(rot2)],
+            [math.sin(rot2), math.cos(rot2)],
+        ]
+        
+        for axis in axes:
+            min1, max1 = float('inf'), float('-inf')
+            for c in corners1:
+                proj = c[0] * axis[0] + c[1] * axis[1]
+                min1, max1 = min(min1, proj), max(max1, proj)
+            
+            min2, max2 = float('inf'), float('-inf')
+            for c in corners2:
+                proj = c[0] * axis[0] + c[1] * axis[1]
+                min2, max2 = min(min2, proj), max(max2, proj)
+                
+            if max1 < min2 or max2 < min1:
+                return False # Found a separating axis, no collision
+        return True
 
     async def _game_loop(self):
         loop = asyncio.get_event_loop()
         next_tick = loop.time()
-
         while self._running:
-            self._tick()
-            
-            # Pack payload
-            flat_players = []
-            for p_id, p in self.players.items():
-                speed = math.hypot(p['vel_x'], p['vel_z'])
-                speed_kmh = speed / DT * 3.6
-                flat_players.append({
-                    'id': p_id,
-                    'x': round(p['pos'][0], 3),
-                    'z': round(p['pos'][2], 3),
-                    'ry': round(p['rot_y'], 4),
-                    'ty': round(p['turr_y'], 4),
-                    'skin': p['tank_type'],
-                    'hp': p['hp'],
-                    'dead': 1 if p['is_dead'] else 0,
-                    'sp': round(speed_kmh, 1),
-                    'w': 1 if p['at_wall'] else 0,
-                    'rld': round(p['reload_timer'], 1),
-                    'c': p['color']
-                })
-
-            # Bullets payload now includes vx, vz for client-side extrapolation!
-            flat_bullets = [[round(b[0], 2), round(b[1], 2), round(b[2], 2), round(b[3], 2)] for b in self.bullets]
-
-            payload = {
-                'type': 'game_message',
-                'message': [flat_players, flat_bullets]
-            }
-            
             try:
+                # Check for room inactivity
+                if self._cleanup_check():
+                    if self.room_id in PROTO_ROOMS:
+                        del PROTO_ROOMS[self.room_id]
+                    break
+
+                if self.game_timer > 0:
+                    self.game_timer -= DT
+                else:
+                    self.game_timer = 0
+
+                self._tick()
+                
+                # Iterate over a copy to avoid RuntimeError: dictionary changed size during iteration
+                player_items = list(self.players.items())
+                flat_players = []
+                for p_id, p in player_items:
+                    speed = math.hypot(p['vel_x'], p['vel_z'])
+                    speed_kmh = speed / DT * 3.6
+                    flat_players.append({
+                        'id': p_id,
+                        'nick': p['nickname'],
+                        'x': round(p['pos'][0], 3),
+                        'z': round(p['pos'][2], 3),
+                        'ry': round(p['rot_y'], 4),
+                        'ty': round(p['turr_y'], 4),
+                        'skin': p['tank_type'],
+                        'hp': p['hp'],
+                        'dead': 1 if p['is_dead'] else 0,
+                        'sp': round(speed_kmh, 1),
+                        'w': 1 if p['at_wall'] else 0,
+                        'rld': round(p['reload_timer'], 1),
+                        'c': p['color'],
+                        'k': p['kills'],
+                        'd': p['deaths'],
+                        'tm': p['team']
+                    })
+                
+                flat_bullets = [[round(b[0], 2), round(b[1], 2), round(b[2], 2), round(b[3], 2)] for b in self.bullets]
+                payload = {
+                    'type': 'game_message', 
+                    'message': [
+                        flat_players, 
+                        flat_bullets, 
+                        {
+                            'timer': int(self.game_timer),
+                            'score': self.team_scores
+                        }
+                    ]
+                }
+                
                 await self.channel_layer.group_send(self.group_name, payload)
-            except Exception:
-                pass
+                
+            except Exception as e:
+                print(f"[Room {self.room_id}] Loop Error: {e}")
+                # Optional: import traceback; traceback.print_exc()
 
             next_tick += DT
             sleep_time = next_tick - loop.time()
-            if sleep_time > 0:
+            if sleep_time > 0: 
                 await asyncio.sleep(sleep_time)
             else:
-                if sleep_time < -1.0:
+                if sleep_time < -1.0: 
                     next_tick = loop.time()
 
     def _tick(self):
+        # Cache corners for all tanks once per tick to optimize SAT
+        tank_corners = {p_id: self._get_tank_corners(p) for p_id, p in self.players.items() if not p['is_dead']}
+
         alive_bullets = []
         for b in self.bullets:
             bx, bz, vx, vz, owner = b
             hit = False
-            
-            # Sub-step 6 times to prevent bullets from tunneling through tanks/walls at high speeds
             for _step in range(6):
                 bx += vx / 6.0
                 bz += vz / 6.0
-
                 if not (WORLD_MIN <= bx <= WORLD_MAX and WORLD_MIN <= bz <= WORLD_MAX):
-                    hit = True
-                    break
-                
-                if hit: break
-
-                # Hit check against tanks (OBB 2D ignoring Height/Y)
+                    hit = True; break
                 for p_id, p in self.players.items():
-                    if p_id == owner:
-                        continue
-                    px, pz = p['pos'][0], p['pos'][2]
+                    if p_id == owner or p['is_dead']: continue
                     
-                    dx = bx - px
-                    dz = bz - pz
+                    # Use cached corners for collision check
+                    p_corners = tank_corners.get(p_id)
+                    if not p_corners: continue
                     
-                    # Transform bullet relative position by inverse of tank rotation
+                    dx, dz = bx - p['pos'][0], bz - p['pos'][2]
                     rot = p['rot_y']
                     cos_r, sin_r = math.cos(rot), math.sin(rot)
                     local_x = dx * cos_r - dz * sin_r
                     local_z = dx * sin_r + dz * cos_r
-
                     t_size = _TANK_CONFIGS.get(p['tank_type'], {}).get('size', _DEFAULT_TANK_SIZE)
                     hw_x, hw_z = t_size[0]/2, t_size[2]/2
                     if -hw_x <= local_x <= hw_x and -hw_z <= local_z <= hw_z:
-                        if not p['is_dead']:
-                            hit = True
-                            p['hp'] -= 25
-                            if p['hp'] <= 0:
-                                p['is_dead'] = True
-                                p['hp'] = 0
-                                p['vel_x'] = 0.0
-                                p['vel_z'] = 0.0
-                                p['respawn_timer'] = 5.0
+                        # Hit!
+                        p['hp'] -= 25
+                        hit = True
+                        if p['hp'] <= 0:
+                            p['is_dead'] = True
+                            p['hp'] = 0
+                            p['deaths'] += 1
+                            p['respawn_timer'] = 5.0
+                            # Score for killer
+                            if owner in self.players:
+                                killer = self.players[owner]
+                                killer['kills'] += 1
+                                if self.game_mode == 'team':
+                                    self.team_scores[killer['team']] += 1
                         break
-                
                 if hit: break
-
-            if not hit:
-                alive_bullets.append([bx, bz, vx, vz, owner])
-
+            if not hit: alive_bullets.append([bx, bz, vx, vz, owner])
         self.bullets = alive_bullets
 
-        # Process each player
         for p_id, p in self.players.items():
             if p['is_dead']:
                 p['respawn_timer'] -= DT
                 if p['respawn_timer'] <= 0:
                     p['is_dead'] = False
                     p['hp'] = 100
-                    self._spawn_player(p)
+                    self._assign_team_and_spawn(p_id)
                 continue
-
             inp = p['inp']
             fwd, bwd = inp['forward'], inp['backward']
             speed = math.hypot(p['vel_x'], p['vel_z'])
-
             speed_ratio = min(speed / MAX_V_FWD, 1.0)
-            turn_rate   = TURN_SLOW + (TURN_FAST - TURN_SLOW) * (speed_ratio ** TURN_EXP)
+            turn_rate = TURN_SLOW + (TURN_FAST - TURN_SLOW) * (speed_ratio ** TURN_EXP)
             rot_accel = turn_rate * 0.15
-
-            if inp['hullRotateLeft']:
-                p['rot_v'] += rot_accel
-            elif inp['hullRotateRight']:
-                p['rot_v'] -= rot_accel
-            else:
-                p['rot_v'] *= 0.82
-                if abs(p['rot_v']) < 0.0001:
-                    p['rot_v'] = 0.0
-
+            if inp['hullRotateLeft']: p['rot_v'] += rot_accel
+            elif inp['hullRotateRight']: p['rot_v'] -= rot_accel
+            else: p['rot_v'] *= 0.82
             p['rot_v'] = max(-turn_rate, min(turn_rate, p['rot_v']))
             p['rot_y'] = _norm(p['rot_y'] + p['rot_v'])
-
-            if inp['turretLeft']:
-                p['turr_y'] += TURRET_SPD
-            if inp['turretRight']:
-                p['turr_y'] -= TURRET_SPD
+            if inp['turretLeft']: p['turr_y'] += TURRET_SPD
+            if inp['turretRight']: p['turr_y'] -= TURRET_SPD
             p['turr_y'] = _norm(p['turr_y'])
-
-            heading_x, heading_z = math.sin(p['rot_y']), math.cos(p['rot_y'])
-            v_fwd = p['vel_x'] * heading_x + p['vel_z'] * heading_z
-            v_lat = p['vel_x'] * heading_z - p['vel_z'] * heading_x
-
+            hx, hz = math.sin(p['rot_y']), math.cos(p['rot_y'])
+            vf, vl = p['vel_x']*hx + p['vel_z']*hz, p['vel_x']*hz - p['vel_z']*hx
             if fwd and not bwd:
-                if v_fwd >= 0:
-                    taper = max(0.0, 1.0 - (v_fwd / MAX_V_FWD)) ** ACCEL_EXP
-                    v_fwd = min(v_fwd + ACCEL_BASE_FWD * taper, MAX_V_FWD)
-                else:
-                    v_fwd = min(0.0, v_fwd + BRAKE_FORCE)
+                if vf >= 0: vf = min(vf + ACCEL_BASE_FWD * (max(0.0, 1.0-(vf/MAX_V_FWD))**ACCEL_EXP), MAX_V_FWD)
+                else: vf = min(0.0, vf + BRAKE_FORCE)
             elif bwd and not fwd:
-                if v_fwd <= 0:
-                    taper = max(0.0, 1.0 - (abs(v_fwd) / MAX_V_BWD)) ** ACCEL_EXP
-                    v_fwd = max(v_fwd - ACCEL_BASE_BWD * taper, -MAX_V_BWD)
-                else:
-                    v_fwd = max(0.0, v_fwd - BRAKE_FORCE)
+                if vf <= 0: vf = max(vf - ACCEL_BASE_BWD * (max(0.0, 1.0-(abs(vf)/MAX_V_BWD))**ACCEL_EXP), -MAX_V_BWD)
+                else: vf = max(0.0, vf - BRAKE_FORCE)
             else:
-                if v_fwd > 0: v_fwd = max(0.0, v_fwd - FRICTION)
-                elif v_fwd < 0: v_fwd = min(0.0, v_fwd + FRICTION)
-
-            drift_factor = 0.82
-            if speed_ratio > 0.45 and abs(p['rot_v']) > turn_rate * 0.4:
-                drift_factor = 0.96
-            v_lat *= drift_factor
-
-            p['vel_x'] = v_fwd * heading_x + v_lat * heading_z
-            p['vel_z'] = v_fwd * heading_z - v_lat * heading_x
-
+                if vf > 0: vf = max(0.0, vf - FRICTION)
+                elif vf < 0: vf = min(0.0, vf + FRICTION)
+            vl *= 0.82 if speed_ratio <= 0.45 else 0.96
+            p['vel_x'], p['vel_z'] = vf*hx + vl*hz, vf*hz - vl*hx
             if speed > 1e-7:
-                prev_x, prev_z = p['pos'][0], p['pos'][2]
-                p['pos'][0] += p['vel_x']
-                p['pos'][2] += p['vel_z']
-
-                tank_candidate = {
-                    'id': p_id,
-                    'position': p['pos'][:],
-                    'rotation': [0.0, p['rot_y'], 0.0],
-                    'size': _TANK_CONFIGS.get(p['tank_type'], {}).get('size', _DEFAULT_TANK_SIZE),
-                }
-                
-                # Check walls
-                t_size = tank_candidate['size']
-                hw_x, hw_z = t_size[0] / 2, t_size[2] / 2
-                lo, hi = WORLD_MIN, WORLD_MAX
-                cx = max(lo + hw_x, min(hi - hw_x, p['pos'][0]))
-                cz = max(lo + hw_z, min(hi - hw_z, p['pos'][2]))
+                px, pz = p['pos'][0], p['pos'][2]
+                p['pos'][0] += p['vel_x']; p['pos'][2] += p['vel_z']
+                t_size = _TANK_CONFIGS.get(p['tank_type'], {}).get('size', _DEFAULT_TANK_SIZE)
+                hw_x, hw_z = t_size[0]/2, t_size[2]/2
+                cx = max(WORLD_MIN + hw_x, min(WORLD_MAX - hw_x, p['pos'][0]))
+                cz = max(WORLD_MIN + hw_z, min(WORLD_MAX - hw_z, p['pos'][2]))
                 p['at_wall'] = (cx != p['pos'][0] or cz != p['pos'][2])
-
-                if p['at_wall']:
-                    p['pos'][0], p['pos'][2] = cx, cz
-                    p['vel_x'] *= 0.1
-                    p['vel_z'] *= 0.1
-
-                # Tank-to-Tank Collisions (Simple 2D Circle Approximation)
-                # Use combined radius 3.5m.
+                if p['at_wall']: p['pos'][0], p['pos'][2] = cx, cz
                 tank_collided = False
-                for other_id, other_p in self.players.items():
-                    if other_id != p_id and not other_p['is_dead']:
-                        dx = p['pos'][0] - other_p['pos'][0]
-                        dz = p['pos'][2] - other_p['pos'][2]
-                        if math.hypot(dx, dz) < 3.5:
-                            tank_collided = True
-                            break
-                if tank_collided:
-                    p['pos'][0], p['pos'][2] = prev_x, prev_z
-                    p['vel_x'], p['vel_z'] = 0.0, 0.0
-
-            # Fire Mechanics Setup
-            if p['reload_timer'] > 0:
-                p['reload_timer'] = max(0.0, p['reload_timer'] - DT)
-
+                for oid, op in self.players.items():
+                    if oid != p_id and not op['is_dead']:
+                        # Fast circular pre-check
+                        dist = math.hypot(p['pos'][0]-op['pos'][0], p['pos'][2]-op['pos'][2])
+                        if dist < 9.0: 
+                            # Use fresh corners for the moving player (p) and cached for others
+                            if self._check_tank_collision_sat(p, op, corners1=self._get_tank_corners(p), corners2=tank_corners.get(oid)):
+                                tank_collided = True; break
+                if tank_collided: p['pos'][0], p['pos'][2], p['vel_x'], p['vel_z'] = px, pz, 0, 0
+            if p['reload_timer'] > 0: p['reload_timer'] = max(0.0, p['reload_timer'] - DT)
             if inp['fire'] and p['reload_timer'] == 0:
                 p['reload_timer'] = 7.0
-                # Use WORLD rotation of the turret (tank hull + local turret)
-                world_turr = p['rot_y'] + p['turr_y']
-                bx = p['pos'][0] + math.sin(world_turr) * 1.5
-                bz = p['pos'][2] + math.cos(world_turr) * 1.5
-                vx = math.sin(world_turr) * PROTO_BULLET_SPEED
-                vz = math.cos(world_turr) * PROTO_BULLET_SPEED
-                self.bullets.append([bx, bz, vx, vz, p_id])
+                wt = p['rot_y'] + p['turr_y']
+                bx, bz = p['pos'][0] + math.sin(wt)*1.5, p['pos'][2] + math.cos(wt)*1.5
+                self.bullets.append([bx, bz, math.sin(wt)*PROTO_BULLET_SPEED, math.cos(wt)*PROTO_BULLET_SPEED, p_id])
 
 
 class ProtoTankConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.lobby_id = self.scope['url_route']['kwargs']['session_id']
-        self.group_name = f'prototank_{self.lobby_id}'
+        # Get session_id from URL
+        self.session_id = self.scope['url_route']['kwargs'].get('session_id', 'global')
+        self.lobby_id = self.session_id # for internal reference
+        self.group_name = f'prototank_{self.session_id}'
         self.player_id = self.channel_name
         
+        # Try to get nickname and token from query string
+        query_string = self.scope.get('query_string', b'').decode('utf-8')
+        params = dict(x.split('=') for x in query_string.split('&') if '=' in x)
+        nickname = params.get('nick')
+        token = params.get('token')
+
+        # Authenticate via token if provided
+        self.user = await self._get_user_from_token(token)
+
         if self.lobby_id not in PROTO_ROOMS:
             PROTO_ROOMS[self.lobby_id] = ProtoTankRoom(self.lobby_id, self.channel_layer)
         
         room = PROTO_ROOMS[self.lobby_id]
-        await room.add_player(self.player_id)
         
+        # Get player info from DB
+        player_info = await self._get_player_info()
+        tank_type = player_info.get('tank_type', 't34')
+        side = player_info.get('side', 'allies')
+
+        await room.add_player(self.player_id, nickname=nickname, tank_type=tank_type, side=side)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
-
-        # Send ID to the client
         await self.send(text_data=json.dumps({'type': 'init', 'id': self.player_id}))
+
+    @database_sync_to_async
+    def _get_user_from_token(self, token):
+        if not token:
+            return None
+        try:
+            access_token = AccessToken(token)
+            user_id = access_token['user_id']
+            return User.objects.get(id=user_id)
+        except Exception:
+            return None
+
+    @database_sync_to_async
+    def _get_player_info(self):
+        user = self.user
+        if not user:
+            return {'tank_type': 't34', 'side': 'allies'}
+        
+        profile = PlayerProfile.objects.select_related('selectedTank').filter(user=user).first()
+        membership = LobbyPlayer.objects.filter(lobby_id=self.lobby_id, player=profile).first()
+        
+        tank_key = 't34'
+        if profile and profile.selectedTank:
+            name = profile.selectedTank.name.lower()
+            if 'pz' in name or 'panzer' in name:
+                tank_key = 'pz4'
+        
+        return {
+            'tank_type': tank_key,
+            'side': membership.side if membership else 'allies'
+        }
 
     async def disconnect(self, close_code):
         room = PROTO_ROOMS.get(self.lobby_id)
         if room:
             await room.remove_player(self.player_id)
-            if not room.players:
-                del PROTO_ROOMS[self.lobby_id]
-        
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive(self, text_data):
-        try:
-            data = json.loads(text_data)
-        except (json.JSONDecodeError, ValueError):
-            return
-
+        try: data = json.loads(text_data)
+        except: return
         t = data.get('type')
         room = PROTO_ROOMS.get(self.lobby_id)
-
-        if not room:
-            return
-
-        if t == 'input':
-            room.update_input(self.player_id, data)
-        elif t == 'change_tank':
-            room.update_tank_type(self.player_id, data.get('tank_type'))
-        elif t == 'change_mode':
-            room.change_mode(data.get('mode'))
-        elif t == 'ping':
-            await self.send(text_data=json.dumps({
-                'type': 'pong',
-                'client_time': data.get('client_time', 0),
-            }))
+        if not room: return
+        if t == 'input': room.update_input(self.player_id, data)
+        elif t == 'change_tank': room.update_tank_type(self.player_id, data.get('tank_type'))
+        elif t == 'change_mode': room.change_mode(data.get('mode'))
+        elif t == 'ping': await self.send(text_data=json.dumps({'type': 'pong', 'client_time': data.get('client_time', 0)}))
 
     async def game_message(self, event):
         await self.send(text_data=json.dumps(event['message']))

@@ -22,13 +22,26 @@ import { PixelTitleComponent } from '../../shared/pixel-title/pixel-title.compon
         </div>
         <app-pixel-title />
         <h1>Вход</h1>
-        <label>Никнейм <input name="nickname" [(ngModel)]="nickname" autocomplete="username"></label>
-        <label>Пароль <input name="password" [(ngModel)]="password" type="password" autocomplete="current-password"></label>
+        <p class="auth-copy">Вход в командный центр. Используй свой никнейм и пароль, чтобы продолжить бой.</p>
+        <label>
+          Никнейм
+          <input name="nickname" [(ngModel)]="nickname" autocomplete="username" [disabled]="loading()">
+        </label>
+        <label>
+          Пароль
+          <input
+            name="password"
+            [(ngModel)]="password"
+            type="password"
+            autocomplete="current-password"
+            [disabled]="loading()"
+          >
+        </label>
         @if (error()) {
           <div class="error">{{ error() }}</div>
         }
         <div class="auth-actions">
-          <button class="button primary auth-button" type="submit" [disabled]="loading()">
+          <button class="button primary auth-button" type="submit" [disabled]="loading() || !nickname.trim() || !password">
             {{ loading() ? 'Проверка...' : 'Войти' }}
           </button>
           <a routerLink="/register" class="button auth-button secondary">Создать</a>
@@ -46,6 +59,10 @@ export class LoginComponent {
   constructor(private auth: AuthService, private router: Router) {}
 
   submit(): void {
+    if (!this.nickname.trim() || !this.password) {
+      this.error.set('Введите никнейм и пароль.');
+      return;
+    }
     this.loading.set(true);
     this.error.set('');
     this.auth.login(this.nickname.trim(), this.password).subscribe({

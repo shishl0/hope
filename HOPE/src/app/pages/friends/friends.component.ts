@@ -154,7 +154,7 @@ import { FriendPlayer, FriendsSummary, LobbyInvite } from '../../models/friend';
     </main>
   `,
 })
-export class FriendsComponent implements OnInit {
+export class FriendsComponent implements OnInit, OnDestroy {
   summary = signal<FriendsSummary | null>(null);
   foundPlayer = signal<FriendPlayer | null>(null);
   selectedFriend = signal<FriendPlayer | null>(null);
@@ -188,9 +188,11 @@ export class FriendsComponent implements OnInit {
       this.summary.set(summary);
       const selectedId = this.selectedFriendPublicId();
       if (selectedId) {
-        const selected = summary.friends.find((friend) => friend.publicId === selectedId);
-        if (selected) this.selectFriend(selected.publicId, false);
-        else {
+        const friendFromSummary = summary.friends.find((f) => f.publicId === selectedId);
+        if (friendFromSummary && this.selectedFriend()) {
+            // Update basic status in existing selected friend
+            this.selectedFriend.update(cur => cur ? { ...cur, ...friendFromSummary } : null);
+        } else if (!friendFromSummary) {
           this.selectedFriendId.set(null);
           this.selectedFriend.set(null);
         }
@@ -216,7 +218,7 @@ export class FriendsComponent implements OnInit {
     this.toastTimeoutId = window.setTimeout(() => {
       this.lobbyInviteToast.set(null);
       this.toastTimeoutId = undefined;
-    }, 8000);
+    }, 8001);
   }
 
   search(): void {
@@ -293,6 +295,7 @@ export class FriendsComponent implements OnInit {
 
   statusLabel(friend: FriendPlayer | null): string {
     if (!friend) return 'неизвестно';
+    if (friend.activeLobbyId) return 'в комнате';
     return friend.isOnline ? 'в сети' : this.lastSeenLabel(friend);
   }
 

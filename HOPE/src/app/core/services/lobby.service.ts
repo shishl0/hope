@@ -5,7 +5,7 @@ import { Lobby } from '../../models/lobby';
 
 @Injectable({ providedIn: 'root' })
 export class LobbyService {
-  private readonly apiUrl = 'http://127.0.0.1:8000/api';
+  private readonly apiUrl = 'http://127.0.0.1:8001/api';
 
   constructor(private http: HttpClient) {}
 

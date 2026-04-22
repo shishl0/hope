@@ -36,6 +36,7 @@ class PlayerProfile(models.Model):
     wins = models.IntegerField(default=0)
     losses = models.IntegerField(default=0)
     rating = models.IntegerField(default=1000)
+    lastSeenAt = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.nickname
@@ -79,8 +80,12 @@ class Lobby(models.Model):
 class LobbyPlayer(models.Model):
     lobby = models.ForeignKey(Lobby, on_delete=models.CASCADE, related_name='players')
     player = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE)
+    side = models.CharField(max_length=10, default='allies')
     is_ready = models.BooleanField(default=False)
     joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('lobby', 'player')
 
 
 class Match(models.Model):
@@ -95,3 +100,42 @@ class MatchPlayerStats(models.Model):
     player = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE)
     kills = models.IntegerField(default=0)
     deaths = models.IntegerField(default=0)
+
+
+class FriendRequest(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_DECLINED = 'declined'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_DECLINED, 'Declined'),
+    ]
+
+    fromPlayer = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name='sent_friend_requests')
+    toPlayer = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name='received_friend_requests')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class LobbyInvite(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_DECLINED = 'declined'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_DECLINED, 'Declined'),
+    ]
+
+    fromPlayer = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name='sent_lobby_invites')
+    toPlayer = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name='received_lobby_invites')
+    lobby = models.ForeignKey(Lobby, on_delete=models.CASCADE, related_name='invites')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']

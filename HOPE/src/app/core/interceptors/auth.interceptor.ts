@@ -1,9 +1,9 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
-  const token = sessionStorage.getItem('hope_access') || localStorage.getItem('hope_access');
+  const token = localStorage.getItem('hope_access');
 
-  if (!token || !req.url.startsWith('http://127.0.0.1:8000/api')) {
+  if (!token || !req.url.includes('/api/')) {
     return next(req);
   }
 
