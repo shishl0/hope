@@ -89,7 +89,7 @@ class LobbyPlayer(models.Model):
 
 
 class Match(models.Model):
-    lobby = models.OneToOneField(Lobby, on_delete=models.SET_NULL, null=True)
+    lobby = models.ForeignKey(Lobby, on_delete=models.SET_NULL, null=True)
     winner_team = models.CharField(max_length=50, blank=True, null=True) # or specific player
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)

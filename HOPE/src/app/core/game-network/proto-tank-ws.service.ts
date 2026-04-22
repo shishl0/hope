@@ -15,7 +15,7 @@ export class ProtoTankWsService implements OnDestroy {
   private socket: WebSocket | null = null;
   private sessionId = 'session1';
   private get wsUrl(): string {
-    return `ws://127.0.0.1:8001/ws/proto-tank/${this.sessionId}/`;
+    return `ws://${window.location.hostname}:8000/ws/proto-tank/${this.sessionId}/`;
   }
 
   setSessionId(id: string): void {

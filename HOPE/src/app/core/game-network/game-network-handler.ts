@@ -15,9 +15,9 @@ import {
 })
 export class GameNetworkHandler {
 
-  private readonly cubeMoveUrl = 'http://127.0.0.1:8001/api/object/move/';
-  private readonly protoTankMoveUrl = 'http://127.0.0.1:8001/api/proto-tank/move/';
-  private readonly protoTankBulletUrl = 'http://127.0.0.1:8001/api/proto-tank/bullets/';
+  private readonly cubeMoveUrl = `http://${window.location.hostname}:8000/api/object/move/`;
+  private readonly protoTankMoveUrl = `http://${window.location.hostname}:8000/api/proto-tank/move/`;
+  private readonly protoTankBulletUrl = `http://${window.location.hostname}:8000/api/proto-tank/bullets/`;
 
   constructor(private http: HttpClient) {}
 

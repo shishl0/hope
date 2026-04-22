@@ -29,7 +29,7 @@ export class GameWebsocketService {
   connect(lobbyId: string = 'testlobby1'): void {
     this.lobbyId = lobbyId;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = '127.0.0.1:8001'; // User is running backend on 8001
+    const host = `${window.location.hostname}:8000`; // User is running backend on 8000
     const url = `${protocol}//${host}/ws/game/${this.lobbyId}/`;
 
     console.log(`Connecting to WebSocket: ${url}`);

@@ -256,7 +256,7 @@ export class SceneService {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const nick = this.auth.profile()?.nickname || 'Guest';
     const token = localStorage.getItem('hope_access') || '';
-    this.socket = new WebSocket(`${protocol}//${window.location.hostname}:8001/ws/proto-tank/${this.sessionId}/?nick=${encodeURIComponent(nick)}&token=${token}`);
+    this.socket = new WebSocket(`${protocol}//${window.location.hostname}:8000/ws/proto-tank/${this.sessionId}/?nick=${encodeURIComponent(nick)}&token=${token}`);
     
     this.socket.onopen = () => {
       this.hudSubject.next({ ...this.hudSubject.value, connected: true });
