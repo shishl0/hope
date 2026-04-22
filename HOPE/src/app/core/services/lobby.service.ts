@@ -21,6 +21,10 @@ export class LobbyService {
     return this.http.get<Lobby>(`${this.apiUrl}/lobbies/${id}/`);
   }
 
+  delete(id: number): Observable<unknown> {
+    return this.http.delete(`${this.apiUrl}/lobbies/${id}/`);
+  }
+
   join(id: number, side: 'allies' | 'axis' = 'allies'): Observable<Lobby> {
     return this.http.post<Lobby>(`${this.apiUrl}/lobbies/${id}/join/`, { side });
   }

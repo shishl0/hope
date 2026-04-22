@@ -39,7 +39,11 @@ import { Tank } from '../../models/tank';
               <p class="eyebrow">max 10 players</p>
               <h1>{{ currentLobby()?.name }}</h1>
             </div>
-            <a class="button primary" [routerLink]="['/game', currentLobby()?.id]" (click)="enterGame()">Играть</a>
+            <div style="display: flex; gap: 8px;">
+              <button class="button secondary" (click)="leaveLobby()">Выйти</button>
+              <button class="button secondary" style="color: #ff4444; border-color: #ff4444;" (click)="deleteLobby()">Удалить лобби</button>
+              <a class="button primary" [routerLink]="['/game', currentLobby()?.id]" (click)="enterGame()">Играть</a>
+            </div>
           </div>
 
           <div class="side-switch">
@@ -229,6 +233,30 @@ export class LobbyComponent implements OnInit, OnDestroy {
     if (ownPlayer) {
         this.selectedSide.set(ownPlayer.side);
         if (ownPlayer.selectedTank) this.selectedTankId.set(ownPlayer.selectedTank.id);
+    }
+  }
+
+  leaveLobby(): void {
+    const id = this.currentLobby()?.id;
+    if (!id) return;
+    this.lobbyApi.leave(id).subscribe(() => {
+      this.currentLobby.set(null);
+      if (this.pollId) window.clearInterval(this.pollId);
+      this.router.navigate(['/lobby']);
+      this.loadList();
+    });
+  }
+
+  deleteLobby(): void {
+    const id = this.currentLobby()?.id;
+    if (!id) return;
+    if (confirm('Вы уверены, что хотите удалить это лобби?')) {
+      this.lobbyApi.delete(id).subscribe(() => {
+        this.currentLobby.set(null);
+        if (this.pollId) window.clearInterval(this.pollId);
+        this.router.navigate(['/lobby']);
+        this.loadList();
+      });
     }
   }
 }

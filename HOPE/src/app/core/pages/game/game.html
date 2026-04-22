@@ -87,28 +87,70 @@
 <div class="overlay leaderboard-overlay" [class.active]="showLeaderboard()">
   <div class="panel leaderboard-panel">
     <h1>СТАТИСТИКА БОЯ</h1>
-    <table class="stat-table">
-      <thead>
-        <tr>
-          <th>ИГРОК</th>
-          <th>КОМАНДА</th>
-          <th>УБИЙСТВА</th>
-          <th>СМЕРТИ</th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (row of hud().leaderboard; track row.id) {
-          <tr [class.is-me]="isMe(row.nick)" [class.team-red]="row.team === 'red'" [class.team-blue]="row.team === 'blue'">
-            <td>{{ row.nick }}</td>
-            <td>{{ row.team === 'red' ? 'КРАСНЫЕ' : 'СИНИЕ' }}</td>
-            <td>{{ row.kills }}</td>
-            <td>{{ row.deaths }}</td>
-          </tr>
-        }
-      </tbody>
-    </table>
+    <div class="teams-container">
+      <div class="team-section team-red">
+        <h2>КРАСНЫЕ</h2>
+        <table class="stat-table">
+          <thead>
+            <tr>
+              <th>ИГРОК</th>
+              <th>УБИЙСТВА</th>
+              <th>СМЕРТИ</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of getRedTeam(); track row.id) {
+              <tr [class.is-me]="isMe(row.nick)">
+                <td>{{ row.nick }}</td>
+                <td>{{ row.kills }}</td>
+                <td>{{ row.deaths }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="team-section team-blue">
+        <h2>СИНИЕ</h2>
+        <table class="stat-table">
+          <thead>
+            <tr>
+              <th>ИГРОК</th>
+              <th>УБИЙСТВА</th>
+              <th>СМЕРТИ</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of getBlueTeam(); track row.id) {
+              <tr [class.is-me]="isMe(row.nick)">
+                <td>{{ row.nick }}</td>
+                <td>{{ row.kills }}</td>
+                <td>{{ row.deaths }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
+
+<!-- ── Match End Overlay ───────────────────────────────────── -->
+@if (hud().match_state === 'finished') {
+  <div class="overlay match-end-overlay active">
+    <div class="panel match-end-panel">
+      <h1>МАТЧ ОКОНЧЕН</h1>
+      @if (hud().winner === 'red') {
+        <h2 style="color: #ff4444">ПОБЕДИЛИ КРАСНЫЕ</h2>
+      } @else if (hud().winner === 'blue') {
+        <h2 style="color: #4444ff">ПОБЕДИЛИ СИНИЕ</h2>
+      } @else {
+        <h2>НИЧЬЯ</h2>
+      }
+      <p>СЛЕДУЮЩИЙ БОЙ ЧЕРЕЗ: {{ hud().restart_timer }} сек</p>
+    </div>
+  </div>
+}
 
 <!-- ── Settings Overlay (ESC) ───────────────────────────────────── -->
 <div class="overlay settings-overlay" [class.active]="showSettings()">

@@ -33,6 +33,9 @@ export interface GameHudStats {
   timer: number;
   redScore: number;
   blueScore: number;
+  match_state: 'playing' | 'finished';
+  winner: 'red' | 'blue' | 'draw' | null;
+  restart_timer: number;
   leaderboard: PlayerStat[];
 }
 
@@ -69,7 +72,8 @@ export class SceneService {
   private hudSubject = new BehaviorSubject<GameHudStats>({
     fps: 0, tps: 0, ping: 0, speed_kmh: 0, velocity: 0, at_wall: false, reload: 0,
     connected: false, pos: { x: 0, z: 0 }, hp: 100, dead: false,
-    timer: 540, redScore: 0, blueScore: 0, leaderboard: []
+    timer: 540, redScore: 0, blueScore: 0, leaderboard: [],
+    match_state: 'playing', winner: null, restart_timer: 0
   });
   public hud$ = this.hudSubject.asObservable();
   
@@ -321,7 +325,7 @@ export class SceneService {
           }
 
           // Emit VFX (tracks/dust)
-          const sp = this.hudSubject.value.speed_kmh; // approximated or from state
+          const sp = (tank as any).currentSpeed || 0;
           this.vfx.emitForTank(tank.mash.position, tank.mash.rotation.y, sp, id === this.myId, tank.colliderSize.x, tank.colliderSize.y);
         });
 
@@ -337,7 +341,7 @@ export class SceneService {
           if (this.arena) colliders.push(this.arena.mash);
           this.tanks.forEach((t, tid) => {
             if (tid !== this.myId && !(t as any).isDead) {
-              colliders.push(t.mash);
+              colliders.push(t.getColliderMesh());
             }
           });
           
@@ -386,7 +390,6 @@ export class SceneService {
   updateState(players: any[], bullets: any[][], status?: any) {
     const currentIds = new Set(players.map(p => p.id));
     
-    // Leaderboard update
     const leaderboard: PlayerStat[] = players.map(p => ({
         id: p.id,
         nick: p.nick,
@@ -400,8 +403,10 @@ export class SceneService {
         hudUpdate.timer = status.timer;
         hudUpdate.redScore = status.score.red;
         hudUpdate.blueScore = status.score.blue;
+        if (status.match_state) hudUpdate.match_state = status.match_state;
+        if (status.winner !== undefined) hudUpdate.winner = status.winner;
+        if (status.restart_timer !== undefined) hudUpdate.restart_timer = status.restart_timer;
     }
-    this.hudSubject.next({ ...this.hudSubject.value, ...hudUpdate });
 
     for (const [id, tank] of this.tanks) {
       if (!currentIds.has(id)) {
@@ -424,7 +429,6 @@ export class SceneService {
         tank.addtoScene(this.scene);
         this.tanks.set(p.id, tank);
         
-        // Immediate position for first frame
         tank.mash.position.set(p.x, 0.35, p.z);
         tank.mash.rotation.y = p.ry;
         tank.targetPos = new THREE.Vector3(p.x, 0.35, p.z);
@@ -434,54 +438,48 @@ export class SceneService {
       }
       
       if (tank) {
-        // Hit detection
         if ((tank as any).lastHp !== undefined && p.hp < (tank as any).lastHp && p.hp > 0) {
           this.vfx.emitHit(tank.mash.position);
         }
         (tank as any).lastHp = p.hp;
 
-        // Low HP Smoke
         if (p.hp <= 30 && p.hp > 0) {
-          if (Math.random() > 0.8) {
-            this.vfx.emitLightSmoke(tank.mash.position);
-          }
+          if (Math.random() > 0.8) this.vfx.emitLightSmoke(tank.mash.position);
         }
 
-        // Firing VFX check
         if ((tank as any).lastRld !== undefined && p.rld > 6.5 && (tank as any).lastRld < 1.0) {
-           const worldTurr = tank.getTurretWorldYaw();
-           const muzzlePos = new THREE.Vector3(
-               tank.mash.position.x + Math.sin(worldTurr) * 3.5,
-               tank.mash.position.y + 1.2,
-               tank.mash.position.z + Math.cos(worldTurr) * 3.5
-           );
-           const dir = new THREE.Vector3(Math.sin(worldTurr), 0, Math.cos(worldTurr));
-           this.vfx.emitMuzzleFlash(muzzlePos, dir);
+            const worldTurr = tank.getTurretWorldYaw();
+            const muzzlePos = new THREE.Vector3(
+                tank.mash.position.x + Math.sin(worldTurr) * 3.5,
+                tank.mash.position.y + 1.2,
+                tank.mash.position.z + Math.cos(worldTurr) * 3.5
+            );
+            const dir = new THREE.Vector3(Math.sin(worldTurr), 0, Math.cos(worldTurr));
+            this.vfx.emitMuzzleFlash(muzzlePos, dir);
         }
         (tank as any).lastRld = p.rld;
 
         tank.targetPos = new THREE.Vector3(p.x, 0.35, p.z);
         tank.targetRot = p.ry;
         tank.targetTurr = p.ty;
-        // Destroyed visual state: darkened color and no longer hidden
+        (tank as any).setTeamColor(p.tm);
         (tank as any).setDead(p.dead === 1);
         (tank as any).isDead = (p.dead === 1);
+        (tank as any).currentSpeed = p.sp;
         tank.mash.visible = true; 
 
         if (p.id === this.myId) {
-          this.hudSubject.next({
-            ...this.hudSubject.value,
-            speed_kmh: p.sp,
-            velocity: 0,
-            at_wall: !!p.w,
-            reload: p.rld,
-            pos: { x: p.x, z: p.z },
-            hp: p.hp,
-            dead: !!p.dead
-          });
+          hudUpdate.speed_kmh = p.sp;
+          hudUpdate.at_wall = !!p.w;
+          hudUpdate.reload = p.rld;
+          hudUpdate.pos = { x: p.x, z: p.z };
+          hudUpdate.hp = p.hp;
+          hudUpdate.dead = !!p.dead;
         }
       }
     }
+    
+    this.hudSubject.next({ ...this.hudSubject.value, ...hudUpdate });
     
     // ── Bullet Management ────────────────────────────────────
     const currentBulletCount = bullets.length;

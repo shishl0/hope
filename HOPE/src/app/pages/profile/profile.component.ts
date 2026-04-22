@@ -37,7 +37,8 @@ import { HangarPreviewComponent } from '../../shared/hangar-preview/hangar-previ
           <div class="stat-box"><span>K/D</span><strong>{{ kd() }}</strong></div>
           <div class="stat-box"><span>Убийства</span><strong>{{ profile()?.totalKills || 0 }}</strong></div>
           <div class="stat-box"><span>Смерти</span><strong>{{ profile()?.totalDeaths || 0 }}</strong></div>
-          <div class="stat-box"><span>Матчи</span><strong>{{ profile()?.matchesPlayed || 0 }}</strong></div>
+          <div class="stat-box"><span>Победы</span><strong>{{ profile()?.wins || 0 }}</strong></div>
+          <div class="stat-box"><span>Пораж.</span><strong>{{ profile()?.losses || 0 }}</strong></div>
         </article>
       </section>
 

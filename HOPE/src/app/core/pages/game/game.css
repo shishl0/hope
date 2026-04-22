@@ -376,8 +376,26 @@ canvas {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.stat-table tr.team-red { color: #ff6666; }
-.stat-table tr.team-blue { color: #6666ff; }
+.teams-container {
+  display: flex;
+  gap: 32px;
+  width: 100%;
+}
+
+.team-section {
+  flex: 1;
+}
+
+.team-section h2 {
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 12px;
+  letter-spacing: 2px;
+}
+
+.team-red h2 { color: #ff6666; }
+.team-blue h2 { color: #6666ff; }
+
 .stat-table tr.is-me { background: rgba(255, 255, 255, 0.05); font-weight: 700; }
 
 /* ── Settings Grid ─────────────────────────────────────────── */
@@ -409,4 +427,32 @@ canvas {
   display: flex;
   justify-content: center;
   gap: 16px;
+}
+
+/* ── Match End Overlay ─────────────────────────────────────── */
+.match-end-overlay {
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.match-end-panel {
+  text-align: center;
+  padding: 40px 60px;
+}
+
+.match-end-panel h1 {
+  font-size: 48px;
+  margin-bottom: 16px;
+  color: #fff;
+}
+
+.match-end-panel h2 {
+  font-size: 32px;
+  margin-bottom: 24px;
+}
+
+.match-end-panel p {
+  font-size: 18px;
+  color: #aaa;
 }

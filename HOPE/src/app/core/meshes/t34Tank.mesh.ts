@@ -28,7 +28,7 @@ export class T34TankMesh {
     private bodyAxesHelper?: THREE.AxesHelper;
     private turretAxesHelper?: THREE.AxesHelper;
     private muzzleHelper: THREE.Mesh;
-    private colliderHelper: THREE.Mesh;
+    public colliderHelper: THREE.Mesh;
     private nickLabel?: THREE.Sprite;
 
     constructor(id: string, color?: number, nickname?: string) {
@@ -201,11 +201,21 @@ export class T34TankMesh {
 
     setDead(dead: boolean): void {
         const color = dead ? 0x1a1a1a : this.originalColor;
-        this.updateColor(color);
+        this.applyColor(color);
     }
 
-    updateColor(color: number): void {
-        this.originalColor = color;
+    setTeamColor(team: string): void {
+        if (team === 'red') {
+            this.originalColor = 0xffa0a0; // Reddish
+        } else if (team === 'blue') {
+            this.originalColor = 0xa0a0ff; // Blueish
+        } else {
+            this.originalColor = 0xffffff; // Default
+        }
+        this.applyColor(this.originalColor);
+    }
+
+    private applyColor(color: number): void {
         this.mash.traverse((child) => {
             if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
                 child.material.color.setHex(color);
@@ -254,5 +264,13 @@ export class T34TankMesh {
         (this.muzzleHelper.material as THREE.MeshBasicMaterial).dispose();
         this.colliderHelper.geometry.dispose();
         (this.colliderHelper.material as THREE.MeshBasicMaterial).dispose();
+        if (this.nickLabel) {
+            this.nickLabel.geometry.dispose();
+            (this.nickLabel.material as THREE.SpriteMaterial).dispose();
+        }
+    }
+
+    getColliderMesh(): THREE.Mesh {
+        return this.colliderHelper;
     }
 }

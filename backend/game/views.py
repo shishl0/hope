@@ -209,7 +209,7 @@ def lobbies_collection(request):
     return Response(_serialize_lobby(lobby), status=status.HTTP_201_CREATED)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def lobby_detail(request, lobby_id):
     _get_or_create_profile(request.user)
@@ -217,7 +217,13 @@ def lobby_detail(request, lobby_id):
         lobby = Lobby.objects.prefetch_related('players__player__selectedTank').get(pk=lobby_id, is_active=True)
     except Lobby.DoesNotExist:
         return Response({'detail': 'Lobby not found.'}, status=status.HTTP_404_NOT_FOUND)
-    return Response(_serialize_lobby(lobby))
+
+    if request.method == 'GET':
+        return Response(_serialize_lobby(lobby))
+    elif request.method == 'DELETE':
+        lobby.is_active = False
+        lobby.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['POST'])

@@ -98,11 +98,14 @@ class ProtoTankRoom:
         self.group_name = f'prototank_{room_id}'
         self.players = {}
         self.bullets = []
-        self.game_mode = 'ffa'
+        self.game_mode = 'team'
         self._running = True
         self._last_active = time.time()
         self.game_timer = 540.0 # 9 minutes
         self.team_scores = {'red': 0, 'blue': 0}
+        self.match_state = 'playing'
+        self.winner = None
+        self.restart_timer = 0
         self._loop_task = asyncio.create_task(self._game_loop())
 
     async def add_player(self, channel_name, nickname=None, tank_type='t34', side='allies'):
@@ -263,6 +266,41 @@ class ProtoTankRoom:
                 return False # Found a separating axis, no collision
         return True
 
+    @database_sync_to_async
+    def _save_match_stats(self, winner_team):
+        from .models import PlayerProfile, Match, MatchPlayerStats, Lobby
+        from django.utils import timezone
+        
+        # Create the Match record
+        lobby_obj = Lobby.objects.filter(id=int(self.room_id)).first() if self.room_id.isdigit() else None
+        match = Match.objects.create(
+            lobby=lobby_obj,
+            winner_team=winner_team,
+            finished_at=timezone.now()
+        )
+        
+        for p in self.players.values():
+            nickname = p.get('nickname')
+            if nickname:
+                profile = PlayerProfile.objects.filter(nickname=nickname).first()
+                if profile:
+                    # Update global stats
+                    profile.totalKills += p.get('kills', 0)
+                    profile.totalDeaths += p.get('deaths', 0)
+                    if p.get('team') == winner_team:
+                        profile.wins += 1
+                    elif winner_team and winner_team != 'draw' and p.get('team') in ['red', 'blue']:
+                        profile.losses += 1
+                    profile.save(update_fields=['totalKills', 'totalDeaths', 'wins', 'losses'])
+                    
+                    # Create per-match record
+                    MatchPlayerStats.objects.create(
+                        match=match,
+                        player=profile,
+                        kills=p.get('kills', 0),
+                        deaths=p.get('deaths', 0)
+                    )
+
     async def _game_loop(self):
         loop = asyncio.get_event_loop()
         next_tick = loop.time()
@@ -274,12 +312,35 @@ class ProtoTankRoom:
                         del PROTO_ROOMS[self.room_id]
                     break
 
-                if self.game_timer > 0:
-                    self.game_timer -= DT
-                else:
-                    self.game_timer = 0
-
-                self._tick()
+                if self.match_state == 'playing':
+                    if self.game_timer > 0:
+                        self.game_timer -= DT
+                    else:
+                        self.game_timer = 0
+                        self.match_state = 'finished'
+                        self.restart_timer = 10.0
+                        red_sc = self.team_scores.get('red', 0)
+                        blue_sc = self.team_scores.get('blue', 0)
+                        if red_sc > blue_sc: self.winner = 'red'
+                        elif blue_sc > red_sc: self.winner = 'blue'
+                        else: self.winner = 'draw'
+                        await self._save_match_stats(self.winner)
+                    
+                    self._tick()
+                elif self.match_state == 'finished':
+                    self.restart_timer -= DT
+                    if self.restart_timer <= 0:
+                        self.game_timer = 540.0
+                        self.match_state = 'playing'
+                        self.team_scores = {'red': 0, 'blue': 0}
+                        self.bullets = []
+                        for p_id, p in self.players.items():
+                            p['hp'] = 100
+                            p['is_dead'] = False
+                            p['kills'] = 0
+                            p['deaths'] = 0
+                            p['inp'] = {'forward': False, 'backward': False, 'left': False, 'right': False, 'fire': False, 'turretLeft': False, 'turretRight': False, 'hullRotateLeft': False, 'hullRotateRight': False}
+                            self._assign_team_and_spawn(p_id)
                 
                 # Iterate over a copy to avoid RuntimeError: dictionary changed size during iteration
                 player_items = list(self.players.items())
@@ -314,7 +375,10 @@ class ProtoTankRoom:
                         flat_bullets, 
                         {
                             'timer': int(self.game_timer),
-                            'score': self.team_scores
+                            'score': self.team_scores,
+                            'match_state': self.match_state,
+                            'winner': self.winner,
+                            'restart_timer': int(self.restart_timer)
                         }
                     ]
                 }
@@ -348,6 +412,10 @@ class ProtoTankRoom:
                     hit = True; break
                 for p_id, p in self.players.items():
                     if p_id == owner or p['is_dead']: continue
+                    
+                    if self.game_mode == 'team' and owner in self.players:
+                        if p['team'] == self.players[owner]['team']:
+                            continue
                     
                     # Use cached corners for collision check
                     p_corners = tank_corners.get(p_id)
@@ -468,6 +536,12 @@ class ProtoTankConsumer(AsyncWebsocketConsumer):
         player_info = await self._get_player_info()
         tank_type = player_info.get('tank_type', 't34')
         side = player_info.get('side', 'allies')
+
+        # Prevent duplicate tanks for the same account
+        if nickname:
+            for old_id, p in list(room.players.items()):
+                if p.get('nickname') == nickname:
+                    await room.remove_player(old_id)
 
         await room.add_player(self.player_id, nickname=nickname, tank_type=tank_type, side=side)
         await self.channel_layer.group_add(self.group_name, self.channel_name)

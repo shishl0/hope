@@ -39,6 +39,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
   get keybindings() { return this.sceneService.keybindings; }
 
+  getRedTeam() { return this.hud().leaderboard.filter(row => row.team === 'red'); }
+  getBlueTeam() { return this.hud().leaderboard.filter(row => row.team === 'blue'); }
+
   ngOnInit(): void {
     this.hudSub = this.sceneService.hud$.subscribe(s => this.hud.set(s));
   }
