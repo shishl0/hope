@@ -21,7 +21,10 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     at_wall: false, reload: 0, connected: false,
     pos: { x: 0, z: 0 },
     hp: 100, dead: false,
-    timer: 540, redScore: 0, blueScore: 0, leaderboard: []
+    timer: 540, redScore: 0, blueScore: 0, leaderboard: [],
+    match_state: 'playing',
+    winner: null,
+    restart_timer: 0
   });
 
   private hudSub?: Subscription;
