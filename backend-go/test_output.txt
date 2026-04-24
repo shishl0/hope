@@ -1,0 +1,13 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100  1141  100  1141    0     0  41902      0 --:--:-- --:--:-- --:--:-- 42259
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Headers: Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With
+Access-Control-Allow-Methods: POST, OPTIONS, GET, PUT, DELETE
+Access-Control-Allow-Origin: *
+Content-Type: application/json; charset=utf-8
+Date: Thu, 23 Apr 2026 22:02:12 GMT
+Content-Length: 1141
+
+[{"ID":1,"Name":"Room 269","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-22T05:43:23.092797Z"},{"ID":2,"Name":"Room 165","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-22T09:08:13.927723Z"},{"ID":3,"Name":"Room 720","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-22T09:08:15.159999Z"},{"ID":4,"Name":"Room 306","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-22T09:08:15.306677Z"},{"ID":5,"Name":"Room 788","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-22T09:08:15.451536Z"},{"ID":6,"Name":"Room 714","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-22T09:08:15.600411Z"},{"ID":7,"Name":"Room 768","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-23T19:37:21.097636Z"},{"ID":8,"Name":"Room 508","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-23T19:58:35.683519Z"},{"ID":9,"Name":"Room 703","ArenaID":null,"Arena":null,"IsActive":false,"CreatedAt":"2026-04-23T19:59:40.556029Z"},{"ID":10,"Name":"Room 229","ArenaID":null,"Arena":null,"IsActive":true,"CreatedAt":"2026-04-23T20:06:05.155754Z"}]

@@ -5,7 +5,7 @@ import { Lobby } from '../../models/lobby';
 
 @Injectable({ providedIn: 'root' })
 export class LobbyService {
-  private readonly apiUrl = `http://${window.location.hostname}:8000/api`;
+  private readonly apiUrl = `http://${window.location.hostname}:8080/api`;
 
   constructor(private http: HttpClient) {}
 
@@ -35,5 +35,9 @@ export class LobbyService {
 
   setSide(id: number, side: 'allies' | 'axis'): Observable<Lobby> {
     return this.http.post<Lobby>(`${this.apiUrl}/lobbies/${id}/side/`, { side });
+  }
+
+  setMode(id: number, mode: 'team' | 'deathmatch'): Observable<Lobby> {
+    return this.http.post<Lobby>(`${this.apiUrl}/lobbies/${id}/mode/`, { mode });
   }
 }

@@ -18,5 +18,6 @@ export interface Lobby {
   max_players: number;
   player_count: number;
   players: LobbyPlayer[];
+  game_mode: 'team' | 'deathmatch';
   created_at: string;
 }

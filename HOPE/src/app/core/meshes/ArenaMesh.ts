@@ -4,7 +4,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 export class ArenaMesh {
     readonly mash: THREE.Group;
 
-    private readonly loader = new FBXLoader();
+    private readonly loader: FBXLoader;
     private loadedModel?: THREE.Object3D;
     private readonly groundMaterial = new THREE.MeshStandardMaterial({
         color: 0x4f7f45,
@@ -16,7 +16,9 @@ export class ArenaMesh {
         private readonly modelPath = '/3d_Models/arena-1.fbx',
         position = new THREE.Vector3(0, 0, 0),
         scale = new THREE.Vector3(1, 1, 1),
+        manager?: THREE.LoadingManager
     ) {
+        this.loader = new FBXLoader(manager);
         this.mash = new THREE.Group();
         this.mash.position.copy(position);
         this.mash.scale.copy(scale);

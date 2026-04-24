@@ -6,7 +6,7 @@ import { PlayerProfile } from '../../models/player';
 
 @Injectable({ providedIn: 'root' })
 export class TankService {
-  private readonly apiUrl = `http://${window.location.hostname}:8000/api`;
+  private readonly apiUrl = `http://${window.location.hostname}:8080/api`;
 
   constructor(private http: HttpClient) {}
 

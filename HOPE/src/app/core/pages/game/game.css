@@ -456,3 +456,135 @@ canvas {
   font-size: 18px;
   color: #aaa;
 }
+
+/* ── Loading Overlay ─────────────────────────────────────── */
+.loading-overlay {
+  z-index: 2000;
+  backdrop-filter: blur(12px);
+  background: rgba(10, 15, 30, 0.95);
+}
+
+.loading-panel {
+  text-align: center;
+  padding: 40px 60px;
+  min-width: 400px;
+  border: 1px solid rgba(80, 160, 255, 0.3);
+  box-shadow: 0 0 40px rgba(40, 100, 200, 0.2);
+}
+
+.loading-panel h1 {
+  font-size: 20px;
+  color: #80c0ff;
+  letter-spacing: 3px;
+  margin-bottom: 30px;
+  border-bottom: none;
+}
+
+.loading-bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(80, 160, 255, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 15px;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2060c0, #40a0ff);
+  box-shadow: 0 0 10px rgba(64, 160, 255, 0.5);
+  transition: width 0.2s ease;
+}
+
+.loading-panel p {
+  font-size: 14px;
+  color: #c0e0ff;
+  font-weight: 700;
+  margin: 0;
+}
+
+/* ── Mobile Controls ─────────────────────────────────────── */
+.mobile-controls {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 500;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 40px;
+}
+
+.mobile-dpad, .turret-dpad, .fire-btn {
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mobile-dpad {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.dpad-btn {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  width: 40px;
+  height: 40px;
+}
+.dpad-btn:active {
+  background: rgba(80, 160, 255, 0.5);
+  box-shadow: 0 0 15px rgba(80, 160, 255, 0.8);
+}
+
+.mobile-dpad .up { top: 10px; left: 55px; }
+.mobile-dpad .down { bottom: 10px; left: 55px; }
+.mobile-dpad .left { top: 55px; left: 10px; }
+.mobile-dpad .right { top: 55px; right: 10px; }
+
+.mobile-action-area {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 20px;
+}
+
+.turret-dpad {
+  position: relative;
+  width: 120px;
+  height: 50px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.turret-dpad .t-left, .turret-dpad .t-right {
+  position: relative;
+  width: 50px;
+  height: 50px;
+}
+
+.fire-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 60, 60, 0.3);
+  border: 2px solid rgba(255, 60, 60, 0.6);
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+  letter-spacing: 2px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.2);
+}
+.fire-btn:active {
+  background: rgba(255, 60, 60, 0.7);
+  box-shadow: 0 0 25px rgba(255, 0, 0, 0.8);
+}

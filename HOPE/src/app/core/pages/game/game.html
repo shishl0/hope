@@ -208,3 +208,36 @@
     </div>
   </div>
 </div>
+
+<!-- ── Loading Overlay ───────────────────────────────────── -->
+@if (hud().loadingProgress < 100) {
+  <div class="overlay loading-overlay active">
+    <div class="panel loading-panel">
+      <h1>ЗАГРУЗКА ДАННЫХ БОЯ...</h1>
+      <div class="loading-bar-track">
+        <div class="loading-bar-fill" [style.width.%]="hud().loadingProgress"></div>
+      </div>
+      <p>{{ hud().loadingProgress | number:'1.0-0' }}%</p>
+    </div>
+  </div>
+}
+
+<!-- ── Mobile Controls Overlay ───────────────────────────────────── -->
+@if (isMobileDevice) {
+  <div class="mobile-controls">
+    <div class="mobile-dpad left-dpad">
+      <button class="dpad-btn up" (touchstart)="handleTouch('forward', true, $event)" (mousedown)="handleTouch('forward', true, $event)" (touchend)="handleTouch('forward', false, $event)" (mouseup)="handleTouch('forward', false, $event)" (mouseleave)="handleTouch('forward', false, $event)"></button>
+      <button class="dpad-btn down" (touchstart)="handleTouch('backward', true, $event)" (mousedown)="handleTouch('backward', true, $event)" (touchend)="handleTouch('backward', false, $event)" (mouseup)="handleTouch('backward', false, $event)" (mouseleave)="handleTouch('backward', false, $event)"></button>
+      <button class="dpad-btn left" (touchstart)="handleTouch('left', true, $event)" (mousedown)="handleTouch('left', true, $event)" (touchend)="handleTouch('left', false, $event)" (mouseup)="handleTouch('left', false, $event)" (mouseleave)="handleTouch('left', false, $event)"></button>
+      <button class="dpad-btn right" (touchstart)="handleTouch('right', true, $event)" (mousedown)="handleTouch('right', true, $event)" (touchend)="handleTouch('right', false, $event)" (mouseup)="handleTouch('right', false, $event)" (mouseleave)="handleTouch('right', false, $event)"></button>
+    </div>
+
+    <div class="mobile-action-area">
+      <div class="turret-dpad">
+        <button class="dpad-btn t-left" (touchstart)="handleTouch('turretLeft', true, $event)" (mousedown)="handleTouch('turretLeft', true, $event)" (touchend)="handleTouch('turretLeft', false, $event)" (mouseup)="handleTouch('turretLeft', false, $event)" (mouseleave)="handleTouch('turretLeft', false, $event)"></button>
+        <button class="dpad-btn t-right" (touchstart)="handleTouch('turretRight', true, $event)" (mousedown)="handleTouch('turretRight', true, $event)" (touchend)="handleTouch('turretRight', false, $event)" (mouseup)="handleTouch('turretRight', false, $event)" (mouseleave)="handleTouch('turretRight', false, $event)"></button>
+      </div>
+      <button class="fire-btn" (touchstart)="handleTouch('fire', true, $event)" (mousedown)="handleTouch('fire', true, $event)" (touchend)="handleTouch('fire', false, $event)" (mouseup)="handleTouch('fire', false, $event)" (mouseleave)="handleTouch('fire', false, $event)">FIRE</button>
+    </div>
+  </div>
+}

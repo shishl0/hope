@@ -7,7 +7,7 @@ export class T34TankMesh {
     readonly bodyGroup: THREE.Group;
     readonly turretGroup: THREE.Group;
 
-    private readonly fbxLoader = new FBXLoader();
+    private readonly fbxLoader: FBXLoader;
     private isLoaded = false;
     private originalColor: number = 0x6a6b63;
 
@@ -31,8 +31,9 @@ export class T34TankMesh {
     public colliderHelper: THREE.Mesh;
     private nickLabel?: THREE.Sprite;
 
-    constructor(id: string, color?: number, nickname?: string) {
+    constructor(id: string, color?: number, nickname?: string, manager?: THREE.LoadingManager) {
         this.id = id;
+        this.fbxLoader = new FBXLoader(manager);
         this.originalColor = color ?? 0x6a6b63;
         this.mash = new THREE.Group();
         this.bodyGroup = new THREE.Group();

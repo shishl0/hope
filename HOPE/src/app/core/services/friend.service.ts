@@ -6,7 +6,7 @@ import { Lobby } from '../../models/lobby';
 
 @Injectable({ providedIn: 'root' })
 export class FriendService {
-  private readonly apiUrl = `http://${window.location.hostname}:8000/api`;
+  private readonly apiUrl = `http://${window.location.hostname}:8080/api`;
 
   constructor(private http: HttpClient) {}
 

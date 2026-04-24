@@ -37,6 +37,7 @@ export interface GameHudStats {
   winner: 'red' | 'blue' | 'draw' | null;
   restart_timer: number;
   leaderboard: PlayerStat[];
+  loadingProgress: number;
 }
 
 /** World bounds — MUST match ProtoTankConsumer */
@@ -47,8 +48,25 @@ const WORLD_CENTER_Z = (WORLD_MIN + WORLD_MAX) / 2;  // -10
 const WORLD_SIZE = WORLD_MAX - WORLD_MIN;             // 200
 
 /** Per-frame Lerp factors */
-const LERP_ALPHA_POS = 0.15;
-const LERP_ALPHA_ROT = 0.12;
+const LERP_ALPHA_POS = 0.25;
+const LERP_ALPHA_ROT = 0.20;
+
+/** Physics Constants (must match backend-go/internal/game/physics.go) */
+const TPS = 40;
+const DT = 1.0 / TPS;
+const MAX_V_FWD = (85.0 / 3.6) * DT;
+const MAX_V_BWD = (30.0 / 3.6) * DT;
+const ACCEL_BASE_FWD = 0.0021;
+const ACCEL_BASE_BWD = 0.0018;
+const ACCEL_EXP = 0.55;
+const FRICTION = 0.0027;
+const BRAKE_FORCE = 0.00975;
+const TURRET_SPD = 0.0175;
+const TURN_SLOW = 0.0325;
+const TURN_FAST = 0.070;
+const TURN_EXP = 0.6;
+const WORLD_M_MIN = -110.0;
+const WORLD_M_MAX = 90.0;
 
 function lerpAngle(current: number, target: number, alpha: number): number {
   let delta = ((target - current) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
@@ -63,22 +81,25 @@ export class SceneService {
   public renderer!: THREE.WebGLRenderer;
   public clock = new THREE.Clock();
   
-  private tanks: Map<string, (T34TankMesh | Pz4TankMesh) & { targetPos?: THREE.Vector3, targetRot?: number, targetTurr?: number }> = new Map();
+  private tanks: Map<string, (T34TankMesh | Pz4TankMesh) & { targetPos?: THREE.Vector3, targetRot?: number, targetTurr?: number, sp?: number, atWall?: boolean }> = new Map();
   private bullets: THREE.Mesh[] = [];
   private arena?: ArenaMesh;
   private reticleMesh!: THREE.Group;
+  public loadingManager!: THREE.LoadingManager;
   
   // HUD
   private hudSubject = new BehaviorSubject<GameHudStats>({
     fps: 0, tps: 0, ping: 0, speed_kmh: 0, velocity: 0, at_wall: false, reload: 0,
     connected: false, pos: { x: 0, z: 0 }, hp: 100, dead: false,
     timer: 540, redScore: 0, blueScore: 0, leaderboard: [],
-    match_state: 'playing', winner: null, restart_timer: 0
+    match_state: 'playing', winner: null, restart_timer: 0, loadingProgress: 0
   });
   public hud$ = this.hudSubject.asObservable();
   
   // Networking
   private socket?: WebSocket;
+  private reconnectTimeout: any;
+  private intentionalDisconnect = false;
   private myId: string = '';
   private lastPingSent = 0;
   private pingValue = 0;
@@ -86,8 +107,23 @@ export class SceneService {
   private lastFpsUpdate = 0;
   private tickCount = 0;
 
-  // Input
+  // Input & Sync
   private keys: Record<string, boolean> = {};
+  private inputSeq = 0;
+  private pendingInputs: any[] = [];
+  private serverPlayers: Map<string, any> = new Map();
+  private stateBuffer: { t: number, p: any[] }[] = [];
+
+  // Prediction
+  private localState = {
+    x: 0, z: 0,
+    ry: 0, rv: 0,
+    vx: 0, vz: 0,
+    ty: 0,
+    seq: 0
+  };
+  private inputHistory: { seq: number, input: any, state: any }[] = [];
+
   public keybindings = {
     forward: 'KeyW',
     backward: 'KeyS',
@@ -110,6 +146,8 @@ export class SceneService {
     private lightService: LightService
   ) {
     this.loadKeybindings();
+    this.initLoadingManager();
+    
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x9dc8e8); // Cinematic sky blue
     this.scene.fog = new THREE.FogExp2(0x9dc8e8, 0.005); // Fog matching sky
@@ -131,10 +169,23 @@ export class SceneService {
     this._buildBoundary();
     this._buildReticle();
 
-    this.arena = new ArenaMesh('/3d_Models/arena-1.fbx');
+    this.arena = new ArenaMesh('/3d_Models/arena-1.fbx', new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 1, 1), this.loadingManager);
     this.arena.addtoScene(this.scene);
 
     this.vfx.init(this.scene);
+  }
+
+  private initLoadingManager(): void {
+    this.loadingManager = new THREE.LoadingManager();
+    this.loadingManager.onStart = (url, itemsLoaded, itemsTotal) => {
+        this.hudSubject.next({ ...this.hudSubject.value, loadingProgress: itemsLoaded / itemsTotal * 100 });
+    };
+    this.loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+        this.hudSubject.next({ ...this.hudSubject.value, loadingProgress: itemsLoaded / itemsTotal * 100 });
+    };
+    this.loadingManager.onLoad = () => {
+        this.hudSubject.next({ ...this.hudSubject.value, loadingProgress: 100 });
+    };
   }
 
   private _buildReticle(): void {
@@ -186,24 +237,30 @@ export class SceneService {
   private sessionId: string = 'global';
 
   init(canvas: HTMLCanvasElement, sessionId: string = 'global') {
-    this.sessionId = sessionId;
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: false,
-      powerPreference: 'high-performance'
-    });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    try {
+      this.sessionId = sessionId;
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window);
+      
+      this.renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: !isMobile,
+        powerPreference: 'high-performance'
+      });
+      this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.renderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
+      this.renderer.shadowMap.enabled = !isMobile;
 
-    this.cameraService.init(window.innerWidth / window.innerHeight, canvas);
-    
-    window.addEventListener('resize', () => this.onResize());
-    window.addEventListener('keydown', (e) => this.onKey(e, true));
-    window.addEventListener('keyup', (e) => this.onKey(e, false));
+      this.cameraService.init(window.innerWidth / window.innerHeight, canvas);
+      
+      window.addEventListener('resize', () => this.onResize());
+      window.addEventListener('keydown', (e) => this.onKey(e, true));
+      window.addEventListener('keyup', (e) => this.onKey(e, false));
 
-    this.start();
-    this.animate();
+      this.start();
+      this.animate();
+    } catch (e: any) {
+      alert("INIT ERROR: " + e.message);
+    }
   }
 
   private onResize() {
@@ -223,10 +280,18 @@ export class SceneService {
     }
   }
 
+  public setKeyState(action: string, isDown: boolean) {
+    const code = (this.keybindings as any)[action];
+    if (code) {
+      this.keys[code] = isDown;
+      this.sendInput();
+    }
+  }
+
   private sendInput() {
     if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({
-        type: 'input',
+      this.inputSeq++;
+      const input = {
         forward: !!this.keys[this.keybindings.forward],
         backward: !!this.keys[this.keybindings.backward],
         hullRotateLeft: !!this.keys[this.keybindings.left],
@@ -234,8 +299,88 @@ export class SceneService {
         turretLeft: !!this.keys[this.keybindings.turretLeft],
         turretRight: !!this.keys[this.keybindings.turretRight],
         fire: !!this.keys[this.keybindings.fire]
-      }));
+      };
+
+      // Predict immediately
+      this.applyPhysics(input);
+      
+      const inputData = {
+        type: 'input',
+        seq: this.inputSeq,
+        ...input
+      };
+      
+      this.inputHistory.push({ 
+        seq: this.inputSeq, 
+        input, 
+        state: { ...this.localState } 
+      });
+      if (this.inputHistory.length > 200) this.inputHistory.shift();
+
+      this.socket.send(JSON.stringify(inputData));
     }
+  }
+
+  private applyPhysics(inp: any) {
+    // Replicate Go physics logic
+    const speed = Math.sqrt(this.localState.vx ** 2 + this.localState.vz ** 2);
+    const speedRatio = Math.min(speed / MAX_V_FWD, 1.0);
+    const turnRate = TURN_SLOW + (TURN_FAST - TURN_SLOW) * Math.pow(speedRatio, TURN_EXP);
+    const rotAccel = turnRate * 0.15;
+
+    if (inp.hullRotateLeft) {
+      this.localState.rv += rotAccel;
+    } else if (inp.hullRotateRight) {
+      this.localState.rv -= rotAccel;
+    } else {
+      this.localState.rv *= 0.82;
+    }
+    
+    this.localState.rv = Math.max(-turnRate, Math.min(turnRate, this.localState.rv));
+    this.localState.ry = this.normAngle(this.localState.ry + this.localState.rv);
+
+    if (inp.turretLeft) this.localState.ty = this.normAngle(this.localState.ty + TURRET_SPD);
+    if (inp.turretRight) this.localState.ty = this.normAngle(this.localState.ty - TURRET_SPD);
+
+    const hx = Math.sin(this.localState.ry);
+    const hz = Math.cos(this.localState.ry);
+    let vf = this.localState.vx * hx + this.localState.vz * hz;
+    let vl = this.localState.vx * hz - this.localState.vz * hx;
+
+    if (inp.forward && !inp.backward) {
+      if (vf >= 0) {
+        vf = Math.min(vf + ACCEL_BASE_FWD * Math.pow(Math.max(0, 1 - (vf / MAX_V_FWD)), ACCEL_EXP), MAX_V_FWD);
+      } else {
+        vf = Math.min(0, vf + BRAKE_FORCE);
+      }
+    } else if (inp.backward && !inp.forward) {
+      if (vf <= 0) {
+        vf = Math.max(vf - ACCEL_BASE_BWD * Math.pow(Math.max(0, 1 - (Math.abs(vf) / MAX_V_BWD)), ACCEL_EXP), -MAX_V_BWD);
+      } else {
+        vf = Math.max(0, vf - BRAKE_FORCE);
+      }
+    } else {
+      if (vf > 0) vf = Math.max(0, vf - FRICTION);
+      else if (vf < 0) vf = Math.min(0, vf + FRICTION);
+    }
+    
+    vl *= (speedRatio <= 0.45) ? 0.82 : 0.96;
+    this.localState.vx = vf * hx + vl * hz;
+    this.localState.vz = vf * hz - vl * hx;
+
+    this.localState.x += this.localState.vx;
+    this.localState.z += this.localState.vz;
+    
+    // Simple wall clamp
+    this.localState.x = Math.max(WORLD_M_MIN + 2, Math.min(WORLD_M_MAX - 2, this.localState.x));
+    this.localState.z = Math.max(WORLD_M_MIN + 2, Math.min(WORLD_M_MAX - 2, this.localState.z));
+  }
+
+  private normAngle(a: number): number {
+    a = a % (2 * Math.PI);
+    if (a > Math.PI) a -= 2 * Math.PI;
+    if (a < -Math.PI) a += 2 * Math.PI;
+    return a;
   }
 
   public setKey(action: keyof typeof this.keybindings, code: string) {
@@ -253,32 +398,90 @@ export class SceneService {
   }
 
   start() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const nick = this.auth.profile()?.nickname || 'Guest';
-    const token = localStorage.getItem('hope_access') || '';
-    this.socket = new WebSocket(`${protocol}//${window.location.hostname}:8000/ws/proto-tank/${this.sessionId}/?nick=${encodeURIComponent(nick)}&token=${token}`);
-    
-    this.socket.onopen = () => {
-      this.hudSubject.next({ ...this.hudSubject.value, connected: true });
-      this.startPingLoop();
-    };
+    this.intentionalDisconnect = false;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const nick = this.auth.profile()?.nickname || 'Guest';
+      const token = localStorage.getItem('hope_access') || '';
+      
+      this.socket = new WebSocket(`${protocol}//${window.location.hostname}:8080/ws/proto-tank/${this.sessionId}/?nick=${encodeURIComponent(nick)}&token=${token}`);
+      
+      this.socket.onopen = () => {
+        this.hudSubject.next({ ...this.hudSubject.value, connected: true });
+        this.startPingLoop();
+      };
+      
+      this.socket.onerror = (err: any) => {
+        // Silently handle WS errors to prevent alert spam, we'll auto-reconnect via onclose
+      };
+      
+      this.socket.onclose = () => {
+        this.hudSubject.next({ ...this.hudSubject.value, connected: false });
+        if (!this.intentionalDisconnect) {
+          this.reconnectTimeout = setTimeout(() => this.start(), 3000);
+        }
+      };
 
-    this.socket.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.type === 'init') {
-        this.myId = data.id;
-      } else if (data.type === 'pong') {
-        this.pingValue = Date.now() - data.client_time;
-      } else if (Array.isArray(data)) {
-        if (this.tickCount % 100 === 0) console.log(`[Game] Received ${data[0].length} players. MyID: ${this.myId}`);
-        this.updateState(data[0], data[1], data[2]);
-        this.tickCount++;
-      }
-    };
+      this.socket.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'init') {
+          this.myId = data.id;
+        } else if (data.type === 'pong') {
+          this.pingValue = Date.now() - data.client_time;
+        } else if (data.p !== undefined) {
+          // Delta Updates Processing
+          if (data.full) {
+            this.serverPlayers.clear();
+          }
+          for (const p of data.p) {
+            this.serverPlayers.set(p.id, { ...(this.serverPlayers.get(p.id) || {}), ...p });
+          }
+          
+          const fullPlayersArray = Array.from(this.serverPlayers.values());
+          
+          // Entity Interpolation Buffer
+          this.stateBuffer.push({ t: performance.now(), p: JSON.parse(JSON.stringify(fullPlayersArray)) });
+          if (this.stateBuffer.length > 30) this.stateBuffer.shift();
 
-    this.socket.onclose = () => {
-      this.hudSubject.next({ ...this.hudSubject.value, connected: false });
-    };
+          // Server Reconciliation for Local Player
+          const me = fullPlayersArray.find(p => p.id === this.myId);
+          if (me && me.seq !== undefined) {
+             // Remove inputs that the server has already processed
+             while (this.inputHistory.length > 0 && this.inputHistory[0].seq <= me.seq) {
+                 this.inputHistory.shift();
+             }
+
+             // Snap to server state as baseline
+             this.localState.x = me.x;
+             this.localState.z = me.z;
+             this.localState.ry = me.ry;
+             this.localState.ty = me.ty;
+             // Note: Ideally we should also get vx/vz/rv from server to be 100% accurate,
+             // but position is the most critical.
+
+             // Re-apply all pending inputs to predict current position
+             for (const item of this.inputHistory) {
+                 this.applyPhysics(item.input);
+                 item.state = { ...this.localState };
+             }
+          }
+
+          this.updateState(fullPlayersArray, data.b || [], data.st);
+          this.tickCount++;
+        }
+      };
+    } catch (e: any) {
+      console.error("START ERROR:", e);
+    }
+  }
+
+  stop() {
+    this.intentionalDisconnect = true;
+    if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+    if (this.socket) {
+      this.socket.close();
+      this.socket = undefined;
+    }
   }
 
   private startPingLoop() {
@@ -289,7 +492,7 @@ export class SceneService {
     }, 2000);
   }
 
-  private animate() {
+  public animate() {
     this.ngZone.runOutsideAngular(() => {
       const loop = () => {
         const delta = this.clock.getDelta();
@@ -305,19 +508,42 @@ export class SceneService {
           this.lastFpsUpdate = now;
         }
 
+        // ── Client-Side Prediction & Interpolation ──
         this.tanks.forEach((tank, id) => {
-          if (tank.targetPos) {
-            if (tank.mash.position.distanceTo(tank.targetPos) < 0.01) {
-              tank.mash.position.copy(tank.targetPos);
-            } else {
-              tank.mash.position.lerp(tank.targetPos, LERP_ALPHA_POS);
-            }
-          }
-          if (tank.targetRot !== undefined) {
-            tank.mash.rotation.y = lerpAngle(tank.mash.rotation.y, tank.targetRot, LERP_ALPHA_ROT);
-          }
-          if (tank.targetTurr !== undefined) {
-            tank.lerpTurretRotationY(tank.targetTurr, LERP_ALPHA_ROT);
+          if (id === this.myId) {
+             // Local tank uses predicted localState
+             tank.mash.position.set(this.localState.x, 0.35, this.localState.z);
+             tank.mash.rotation.y = this.localState.ry;
+             tank.lerpTurretRotationY(this.localState.ty, 1.0);
+          } else {
+             // Interpolation for other tanks
+             const renderTime = now - 100; // 100ms interpolation delay
+             let s1 = this.stateBuffer[0];
+             let s2 = this.stateBuffer[1];
+             
+             for (let i = 0; i < this.stateBuffer.length - 1; i++) {
+               if (this.stateBuffer[i].t <= renderTime && this.stateBuffer[i+1].t >= renderTime) {
+                 s1 = this.stateBuffer[i];
+                 s2 = this.stateBuffer[i+1];
+                 break;
+               }
+             }
+
+             if (s1 && s2 && s2.t > s1.t) {
+                 const p1 = s1.p.find((p: any) => p.id === id);
+                 const p2 = s2.p.find((p: any) => p.id === id);
+                 if (p1 && p2) {
+                     const a = (renderTime - s1.t) / (s2.t - s1.t);
+                     tank.mash.position.lerpVectors(new THREE.Vector3(p1.x, 0.35, p1.z), new THREE.Vector3(p2.x, 0.35, p2.z), a);
+                     tank.mash.rotation.y = lerpAngle(p1.ry, p2.ry, a);
+                     tank.lerpTurretRotationY(lerpAngle(p1.ty, p2.ty, a), 1.0);
+                 }
+             } else if (tank.targetPos) {
+                 // Fallback if no interpolation data available
+                 tank.mash.position.lerp(tank.targetPos, LERP_ALPHA_POS);
+                 if (tank.targetRot !== undefined) tank.mash.rotation.y = lerpAngle(tank.mash.rotation.y, tank.targetRot, LERP_ALPHA_ROT);
+                 if (tank.targetTurr !== undefined) tank.lerpTurretRotationY(tank.targetTurr, LERP_ALPHA_ROT);
+             }
           }
 
           if ((tank as any).isDead) {
@@ -425,7 +651,7 @@ export class SceneService {
             tank.dispose();
         }
         
-        tank = (p.skin === 'pz4') ? new Pz4TankMesh(p.id, p.c, p.nick) : new T34TankMesh(p.id, p.c, p.nick);
+        tank = (p.skin === 'pz4') ? new Pz4TankMesh(p.id, p.c, p.nick, this.loadingManager) : new T34TankMesh(p.id, p.c, p.nick, this.loadingManager);
         tank.addtoScene(this.scene);
         this.tanks.set(p.id, tank);
         
@@ -459,9 +685,12 @@ export class SceneService {
         }
         (tank as any).lastRld = p.rld;
 
+        // Target properties are still updated as fallback / state holding
         tank.targetPos = new THREE.Vector3(p.x, 0.35, p.z);
         tank.targetRot = p.ry;
         tank.targetTurr = p.ty;
+        tank.sp = p.sp;
+        tank.atWall = p.w === 1;
         (tank as any).setTeamColor(p.tm);
         (tank as any).setDead(p.dead === 1);
         (tank as any).isDead = (p.dead === 1);
@@ -547,7 +776,5 @@ export class SceneService {
     }
   }
 
-  stop() {
-    this.socket?.close();
-  }
+
 }

@@ -47,8 +47,14 @@ import { Tank } from '../../models/tank';
           </div>
 
           <div class="side-switch">
-            <button class="button" [class.is-selected]="selectedSide() === 'allies'" (click)="setSide('allies')">Красные</button>
-            <button class="button" [class.is-selected]="selectedSide() === 'axis'" (click)="setSide('axis')">Синие</button>
+            <div class="mode-select" style="margin-right: 20px; display: flex; gap: 8px;">
+               <button class="button" [class.is-selected]="currentLobby()?.game_mode === 'team'" (click)="setMode('team')">Командный</button>
+               <button class="button" [class.is-selected]="currentLobby()?.game_mode === 'deathmatch'" (click)="setMode('deathmatch')">Deathmatch</button>
+            </div>
+            @if (currentLobby()?.game_mode === 'team') {
+              <button class="button" [class.is-selected]="selectedSide() === 'allies'" (click)="setSide('allies')">Красные</button>
+              <button class="button" [class.is-selected]="selectedSide() === 'axis'" (click)="setSide('axis')">Синие</button>
+            }
           </div>
 
           <div class="lobby-tank-select">
@@ -68,45 +74,62 @@ import { Tank } from '../../models/tank';
             </div>
           </div>
 
-          <div class="teams-grid">
-            <section class="team-panel">
-              <h2 style="color: #ff4444">Красные</h2>
-              <div class="team-slots">
-                @for (slot of teamSlots('allies'); track $index) {
-                  <div class="player-slot" [class.empty]="!slot">
-                    @if (slot) {
-                      <div class="avatar">{{ slot.avatar }}</div>
-                      <strong>{{ slot.nickname }}</strong>
-                      <span>{{ slot.selectedTank?.name || 'танк не выбран' }}</span>
-                    } @else {
-                      <div class="avatar">--</div>
-                      <strong>Свободно</strong>
-                      <span>ожидание</span>
-                    }
-                  </div>
-                }
-              </div>
-            </section>
+          @if (currentLobby()?.game_mode === 'team') {
+            <div class="teams-grid">
+              <section class="team-panel">
+                <h2 style="color: #ff4444">Красные</h2>
+                <div class="team-slots">
+                  @for (slot of teamSlots('allies'); track $index) {
+                    <div class="player-slot" [class.empty]="!slot">
+                      @if (slot) {
+                        <div class="avatar">{{ slot.avatar }}</div>
+                        <strong>{{ slot.nickname }}</strong>
+                        <span>{{ slot.selectedTank?.name || 'танк не выбран' }}</span>
+                      } @else {
+                        <div class="avatar">--</div>
+                        <strong>Свободно</strong>
+                        <span>ожидание</span>
+                      }
+                    </div>
+                  }
+                </div>
+              </section>
 
-            <section class="team-panel">
-              <h2 style="color: #4444ff">Синие</h2>
-              <div class="team-slots">
-                @for (slot of teamSlots('axis'); track $index) {
-                  <div class="player-slot" [class.empty]="!slot">
-                    @if (slot) {
-                      <div class="avatar">{{ slot.avatar }}</div>
-                      <strong>{{ slot.nickname }}</strong>
-                      <span>{{ slot.selectedTank?.name || 'танк не выбран' }}</span>
-                    } @else {
-                      <div class="avatar">--</div>
-                      <strong>Свободно</strong>
-                      <span>ожидание</span>
+              <section class="team-panel">
+                <h2 style="color: #4444ff">Синие</h2>
+                <div class="team-slots">
+                  @for (slot of teamSlots('axis'); track $index) {
+                    <div class="player-slot" [class.empty]="!slot">
+                      @if (slot) {
+                        <div class="avatar">{{ slot.avatar }}</div>
+                        <strong>{{ slot.nickname }}</strong>
+                        <span>{{ slot.selectedTank?.name || 'танк не выбран' }}</span>
+                      } @else {
+                        <div class="avatar">--</div>
+                        <strong>Свободно</strong>
+                        <span>ожидание</span>
+                      }
+                    </div>
+                  }
+                </div>
+              </section>
+            </div>
+          } @else {
+            <div class="teams-grid" style="grid-template-columns: 1fr;">
+               <section class="team-panel">
+                  <h2 style="color: #fbbf24">Все игроки (FFA)</h2>
+                  <div class="team-slots" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+                    @for (player of currentLobby()?.players; track player.id) {
+                      <div class="player-slot">
+                        <div class="avatar">{{ player.avatar }}</div>
+                        <strong>{{ player.nickname }}</strong>
+                        <span>{{ player.selectedTank?.name || 'танк не выбран' }}</span>
+                      </div>
                     }
                   </div>
-                }
-              </div>
-            </section>
-          </div>
+               </section>
+            </div>
+          }
         </section>
       }
     </main>
@@ -181,7 +204,7 @@ export class LobbyComponent implements OnInit, OnDestroy {
   }
 
   join(id: number): void {
-    this.lobbyApi.join(id).subscribe((lobby) => {
+    this.lobbyApi.join(id).subscribe((lobby: Lobby) => {
       this.setCurrentLobby(lobby);
       this.router.navigate(['/lobby', lobby.id]);
     });
@@ -191,7 +214,13 @@ export class LobbyComponent implements OnInit, OnDestroy {
     const id = this.currentLobby()?.id;
     if (!id) return;
     this.selectedSide.set(side);
-    this.lobbyApi.setSide(id, side).subscribe((lobby) => this.setCurrentLobby(lobby));
+    this.lobbyApi.setSide(id, side).subscribe((lobby: Lobby) => this.setCurrentLobby(lobby));
+  }
+
+  setMode(mode: 'team' | 'deathmatch'): void {
+    const id = this.currentLobby()?.id;
+    if (!id) return;
+    this.lobbyApi.setMode(id, mode).subscribe((lobby: Lobby) => this.setCurrentLobby(lobby));
   }
 
   enterGame(): void {

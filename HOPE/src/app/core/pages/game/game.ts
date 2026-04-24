@@ -14,6 +14,7 @@ import { AuthService } from '../../services/auth.service';
 export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
   canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('gameCanvas');
+  isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window);
 
   hud = signal<GameHudStats>({
     fps: 0, tps: 0, ping: 0,
@@ -24,7 +25,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     timer: 540, redScore: 0, blueScore: 0, leaderboard: [],
     match_state: 'playing',
     winner: null,
-    restart_timer: 0
+    restart_timer: 0,
+    loadingProgress: 0
   });
 
   private hudSub?: Subscription;
@@ -93,6 +95,12 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
   exitGame() {
     this.router.navigate(['/lobby']);
+  }
+
+  // ── Mobile Controls ──
+  handleTouch(action: string, isDown: boolean, event: TouchEvent | MouseEvent) {
+    event.preventDefault();
+    this.sceneService.setKeyState(action, isDown);
   }
 
   formatTime(seconds: number): string {

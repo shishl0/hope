@@ -76,6 +76,12 @@ def _ensure_lobby_membership(lobby, profile, side='allies'):
         member.save(update_fields=['side'])
     return member
 
+def _cleanup_inactive_lobby_players():
+    inactive_threshold = timezone.now() - timezone.timedelta(seconds=15)
+    LobbyPlayer.objects.filter(player__lastSeenAt__lt=inactive_threshold).delete()
+    # Deactivate empty lobbies
+    Lobby.objects.filter(is_active=True, players__isnull=True).update(is_active=False)
+
 
 def _parse_player_identifier(raw_value):
     value = (raw_value or '').strip()
@@ -196,6 +202,7 @@ def active_lobbies(request):
 @permission_classes([IsAuthenticated])
 def lobbies_collection(request):
     profile = _get_or_create_profile(request.user)
+    _cleanup_inactive_lobby_players()
 
     if request.method == 'GET':
         lobbies = Lobby.objects.filter(is_active=True).prefetch_related('players__player__selectedTank')
@@ -213,6 +220,7 @@ def lobbies_collection(request):
 @permission_classes([IsAuthenticated])
 def lobby_detail(request, lobby_id):
     _get_or_create_profile(request.user)
+    _cleanup_inactive_lobby_players()
     try:
         lobby = Lobby.objects.prefetch_related('players__player__selectedTank').get(pk=lobby_id, is_active=True)
     except Lobby.DoesNotExist:

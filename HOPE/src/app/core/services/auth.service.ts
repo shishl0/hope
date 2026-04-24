@@ -12,7 +12,7 @@ interface AuthResponse {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly apiUrl = `http://${window.location.hostname}:8000/api`;
+  private readonly apiUrl = `http://${window.location.hostname}:8080/api`;
   readonly profile = signal<PlayerProfile | null>(null);
 
   constructor(private http: HttpClient, private router: Router) {
